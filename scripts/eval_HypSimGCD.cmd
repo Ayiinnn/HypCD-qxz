@@ -13,11 +13,17 @@
 # sbatch scripts/eval_HypSimGCD.cmd cub v1 0.1 2.0
 # sbatch scripts/eval_HypSimGCD.cmd scars v1 0.1 1.2
 # sbatch scripts/eval_HypSimGCD.cmd aircraft v1 0.1 2.3
+# sbatch scripts/eval_HypSimGCD.cmd cifar10 v1 0.1 1.0
+# sbatch scripts/eval_HypSimGCD.cmd cifar100 v1 0.05 1.0
+# sbatch scripts/eval_HypSimGCD.cmd imagenet_100 v1 0.1 1.0
 
 # ------------------ DINOv2 ------------------
 # sbatch scripts/eval_HypSimGCD.cmd cub v2 0.1 2.0
 # sbatch scripts/eval_HypSimGCD.cmd scars v2 0.1 1.2
 # sbatch scripts/eval_HypSimGCD.cmd aircraft v2 0.1 2.0
+# sbatch scripts/eval_HypSimGCD.cmd cifar10 v2 0.1 1.0
+# sbatch scripts/eval_HypSimGCD.cmd cifar100 v2 0.1 1.0
+# sbatch scripts/eval_HypSimGCD.cmd imagenet_100 v2 0.1 1.2
 
 
 data=$1

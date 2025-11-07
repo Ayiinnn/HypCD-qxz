@@ -13,12 +13,17 @@
 # sbatch scripts/train_HypSelEx.cmd cub v1 1.0 1.0 0.1 2.0
 # sbatch scripts/train_HypSelEx.cmd scars v1 0.5 1.0 0.1 2.0
 # sbatch scripts/train_HypSelEx.cmd aircraft v1 0.5 0.5 0.1 2.0
+# sbatch scripts/train_HypSelEx.cmd cifar10 v1 0.1 0.5 0.05 2.0
+# sbatch scripts/train_HypSelEx.cmd cifar100 v1 0.1 0.5 0.05 2.0
+# sbatch scripts/train_HypSelEx.cmd imagenet_100 v1 1.0 0.5 0.05 1.0
 
 # ------------------ DINOv2 ------------------
 # sbatch scripts/train_HypSelEx.cmd cub v2 1.0 1.0 0.1 1.5
 # sbatch scripts/train_HypSelEx.cmd scars v2 0.5 0.5 0.1 2.0
 # sbatch scripts/train_HypSelEx.cmd aircraft v2 0.5 0.5 0.05 1.5
-
+# sbatch scripts/train_HypSelEx.cmd cifar10 v2 0.1 0.5 0.05 2.0
+# sbatch scripts/train_HypSelEx.cmd cifar100 v2 0.1 0.5 0.05 2.0
+# sbatch scripts/train_HypSelEx.cmd imagenet_100 v2 1.0 0.5 0.05 1.0
 
 data=$1
 dino=$2

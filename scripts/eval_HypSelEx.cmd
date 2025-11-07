@@ -13,11 +13,17 @@
 # sbatch scripts/eval_HypSelEx.cmd cub v1
 # sbatch scripts/eval_HypSelEx.cmd scars v1
 # sbatch scripts/eval_HypSelEx.cmd aircraft v1
+# sbatch scripts/eval_HypSelEx.cmd cifar10 v1
+# sbatch scripts/eval_HypSelEx.cmd cifar100 v1
+# sbatch scripts/eval_HypSelEx.cmd imagenet_100 v1
 
 # ------------------ DINOv2 ------------------
 # sbatch scripts/eval_HypSelEx.cmd cub v2
 # sbatch scripts/eval_HypSelEx.cmd scars v2
 # sbatch scripts/eval_HypSelEx.cmd aircraft v2
+# sbatch scripts/eval_HypSelEx.cmd cifar10 v2
+# sbatch scripts/eval_HypSelEx.cmd cifar100 v2
+# sbatch scripts/eval_HypSelEx.cmd imagenet_100 v2
 
 data=$1
 dino=$2
