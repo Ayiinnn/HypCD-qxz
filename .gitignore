@@ -1,0 +1,30 @@
+
+# local runtime/cache
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# logs / outputs
+logs/
+dev_outputs/
+outputs/
+runs/
+wandb/
+*.log
+
+# data / weights / checkpoints
+datasets/
+pretrained/
+checkpoints/
+*.pth
+*.pt
+*.ckpt
+*.pkl
+*.npy
+*.npz
+
+# backups / secrets
+*.bak
+*.pem
+*.key
+*.env
