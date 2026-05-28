@@ -37,6 +37,10 @@ def set_random_seed(seed: int) -> None:
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
+#--------
+def unwrap_model(model):
+    return model.module if isinstance(model, torch.nn.DataParallel) else model
+#--------
 
 class SupConLoss(torch.nn.Module):
     """Supervised Contrastive Learning: https://arxiv.org/pdf/2004.11362.pdf.
@@ -191,8 +195,7 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
             with torch.cuda.amp.autocast(fp16_scaler is not None):
                 student_out = student(images)
                 student_proj = hyperbolic_projector(student_out)
-                hyp_c = hyperbolic_projector.get_c(student_proj)
-                student_out = hyperbolic_classifier(student_proj, c=hyp_c)
+                student_out = hyperbolic_classifier(student_proj)
                 teacher_out = student_out.detach()
 
                 # clustering, sup
@@ -207,7 +210,7 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
                 cluster_loss += args.memax_weight * me_max_loss
 
                 # represent learning, unsup
-                contrastive_logits, contrastive_labels = info_nce_logits(features=student_proj, hyp_c=hyp_c, normalize=False)
+                contrastive_logits, contrastive_labels = info_nce_logits(features=student_proj, hyp_c=args.c, normalize=False)
                 contrastive_loss_distance = torch.nn.CrossEntropyLoss()(contrastive_logits, contrastive_labels)
 
                 # euc unsup loss
@@ -217,7 +220,7 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
                 # representation learning, sup
                 student_proj = torch.cat([f[mask_lab].unsqueeze(1) for f in student_proj.chunk(2)], dim=1)
                 sup_con_labels = class_labels[mask_lab]
-                sup_con_loss_distance = SupConLoss(hyp_c=hyp_c)(student_proj, labels=sup_con_labels)
+                sup_con_loss_distance = SupConLoss(hyp_c=args.c)(student_proj, labels=sup_con_labels)
 
                 sup_con_loss_angle = SupConLoss(hyp_c=0, temperature=0.07 * args.hyper_temp_scale)(student_proj, labels=sup_con_labels)
 
@@ -242,7 +245,6 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
                 pstr += f'distance contrastive_loss: {contrastive_loss_distance.item():.4f} '
                 pstr += f'angle sup_con_loss: {sup_con_loss_angle.item():.4f} '
                 pstr += f'angle contrastive_loss: {contrastive_loss_angle.item():.4f} '
-                pstr += f'c: {float(hyp_c.detach().cpu()):.6f} '
 
             # Train acc
             loss_record.update(loss.item(), class_labels.size(0))
@@ -276,10 +278,12 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
             args.logger.info('Test Accuracies: All {:.4f} | Old {:.4f} | New {:.4f}'.format(all_acc_test, old_acc_test, new_acc_test))
 
             # save the model
-            torch.save(student.state_dict(), args.model_path)
+            #--------
+            torch.save(unwrap_model(student).state_dict(), args.model_path)
             args.logger.info("model saved to {}.".format(args.model_path))
-            torch.save(hyperbolic_projector.state_dict(), args.model_path[:-3] + f'_proj_head.pt')
-            torch.save(hyperbolic_classifier.state_dict(), args.model_path[:-3] + f'_hyp_cls.pt')
+            torch.save(unwrap_model(hyperbolic_projector).state_dict(), args.model_path[:-3] + f'_proj_head.pt')
+            torch.save(unwrap_model(hyperbolic_classifier).state_dict(), args.model_path[:-3] + f'_hyp_cls.pt')
+            #--------
 
             if old_acc_test > best_test_acc_lab:
                 best_test_acc_lab = old_acc_test
@@ -288,10 +292,12 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
                 args.logger.info(f'Metrics with best model on test set: All: {all_acc:.4f} Old: {old_acc:.4f} New: {new_acc:.4f}')
 
                 # save the model with the best acc on train data
-                torch.save(student.state_dict(), args.model_path[:-3] + f'_best.pt')
+                #--------
+                torch.save(unwrap_model(student).state_dict(), args.model_path[:-3] + f'_best.pt')
                 args.logger.info("model saved to {}.".format(args.model_path[:-3] + f'_best.pt'))
-                torch.save(hyperbolic_projector.state_dict(), args.model_path[:-3] + f'_proj_head_best.pt')
-                torch.save(hyperbolic_classifier.state_dict(), args.model_path[:-3] + f'_hyp_cls_best.pt')
+                torch.save(unwrap_model(hyperbolic_projector).state_dict(), args.model_path[:-3] + f'_proj_head_best.pt')
+                torch.save(unwrap_model(hyperbolic_classifier).state_dict(), args.model_path[:-3] + f'_hyp_cls_best.pt')
+                #--------
 
 
 def test(model, test_loader, epoch, save_name, args, hyperbolic_projector, hyperbolic_classifier):
@@ -307,8 +313,7 @@ def test(model, test_loader, epoch, save_name, args, hyperbolic_projector, hyper
             ec_feat = model(images)
 
             hyp_feat = hyperbolic_projector(ec_feat)
-            hyp_c = hyperbolic_projector.get_c(hyp_feat)
-            logits = hyperbolic_classifier(hyp_feat, c=hyp_c)
+            logits = hyperbolic_classifier(hyp_feat)
 
             preds.append(logits.argmax(1).cpu().numpy())
             targets.append(label.cpu().numpy())
@@ -353,6 +358,9 @@ if __name__ == "__main__":
     parser.add_argument('--fp16', action='store_true', default=False)
     parser.add_argument('--print_freq', default=10, type=int)
     parser.add_argument('--exp_name', default='simgcd', type=str)
+    #--------
+    parser.add_argument('--multi_gpu', action='store_true', default=False)
+    #--------
 
     # hyperbolic
     parser.add_argument('--eval_only', action='store_true', default=False)
@@ -361,7 +369,6 @@ if __name__ == "__main__":
     parser.add_argument('--hyper_start_epoch', default=0, type=int)
     parser.add_argument('--hyper_end_epoch', default=200, type=int)
     parser.add_argument('--c', default=0.05, type=float)
-    parser.add_argument('--train_c', action='store_true', default=False)
     parser.add_argument('--cr', type=float, default=0)
     parser.add_argument('--riemannian', type=bool, default=False)
     parser.add_argument('--hyper_max_weight', type=float, default=1.0)
@@ -381,8 +388,12 @@ if __name__ == "__main__":
 
     init_experiment(args, runner_name=[f'HypSimGCD_{args.dataset_name}'])
     args.logger.info(f'Using evaluation function {args.eval_funcs} to print results')
-    # Add a handler for stdout and configure it to log to stdout as well
-    args.logger.add(sys.stdout)
+    #--------
+    # Avoid duplicated console logs:
+    # loguru already has a default stderr handler, and init_experiment adds log.txt.
+    # Adding sys.stdout here makes each logger.info appear twice when using "2>&1 | tee".
+    # args.logger.add(sys.stdout)
+    #--------
 
     # ----------------------
     # BASE MODEL
@@ -459,12 +470,20 @@ if __name__ == "__main__":
     # ----------------------
     args.c = args.c
     if args.cr != 0:
-        hyperbolic_projector = hypnn.ToPoincare(c=args.c, train_c=args.train_c, ball_dim=args.mlp_out_dim, riemannian=args.riemannian, clip_r=args.cr).to(device)
+        hyperbolic_projector = hypnn.ToPoincare(c=args.c, ball_dim=args.mlp_out_dim, riemannian=args.riemannian, clip_r=args.cr).to(device)
     else:
-        hyperbolic_projector = hypnn.ToPoincare(c=args.c, train_c=args.train_c, ball_dim=args.mlp_out_dim, riemannian=args.riemannian).to(device)
+        hyperbolic_projector = hypnn.ToPoincare(c=args.c, ball_dim=args.mlp_out_dim, riemannian=args.riemannian).to(device)
     hyperbolic_classifier = hypnn.HypLinear(in_features=args.feat_dim, out_features=args.num_labeled_classes + args.num_unlabeled_classes, c=args.c).to(device)
 
     model = backbone.to(device)
+    #--------
+    if args.multi_gpu and torch.cuda.device_count() > 1:
+        args.logger.info(f'Using DataParallel on {torch.cuda.device_count()} GPUs')
+        model = nn.DataParallel(model)
+        hyperbolic_projector = nn.DataParallel(hyperbolic_projector)
+        hyperbolic_classifier = nn.DataParallel(hyperbolic_classifier)
+    #--------
+
     # ----------------------
     # TRAIN
     # ----------------------
