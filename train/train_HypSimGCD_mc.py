@@ -28,7 +28,11 @@ import hyptorch.nn_mc as hypnn
 from hyptorch.pmath import dist_matrix
 
 def is_euclidean_c(c):
-    return isinstance(c, (int, float)) and c == 0
+    if isinstance(c, (int, float)):
+        return c == 0
+    if torch.is_tensor(c):
+        return c.numel() == 1 and float(c.detach().cpu()) == 0.0
+    return False
 
 def set_random_seed(seed: int) -> None:
     random.seed(seed)
@@ -138,7 +142,7 @@ def info_nce_logits(features, n_views=2, temperature=1.0, device='cuda', hyp_c=0
     if normalize:
         features = F.normalize(features, dim=1)
 
-    if is_euclidean_c(self.hyp_c):
+    if is_euclidean_c(hyp_c):
         similarity_matrix = torch.matmul(F.normalize(features, dim=-1, p=2), F.normalize(features, dim=-1, p=2).T)
     else:
         similarity_matrix = -dist_matrix(features, features, c=hyp_c)

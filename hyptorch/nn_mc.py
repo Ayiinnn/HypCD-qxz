@@ -372,26 +372,23 @@ class ToPoincare(nn.Module):
         return get_curvature(self.c, ref)
 
     def forward(self, x, c=None):
-    if c is None:
-        c = self.get_c(x)
-    else:
-        c = get_curvature(c, x)
+        if c is None:
+            c = self.get_c(x)
+        else:
+            c = get_curvature(c, x)
 
-    self.riemannian.c = c.detach() if torch.is_tensor(c) else c
+        self.riemannian.c = c.detach() if torch.is_tensor(c) else c
 
-    if self.clip_r is not None:
-        x_norm = torch.norm(x, dim=-1, keepdim=True) + 1e-5
-        fac = torch.minimum(
-            torch.ones_like(x_norm),
-            self.clip_r / x_norm
-        )
-        x = x * fac
+        if self.clip_r is not None:
+            x_norm = torch.norm(x, dim=-1, keepdim=True) + 1e-5
+            fac = torch.minimum(torch.ones_like(x_norm), self.clip_r / x_norm)
+            x = x * fac
 
-    if self.train_x:
-        xp = pmath.project(pmath.expmap0(self.xp, c=c), c=c)
-        return self.grad_fix(pmath.project(pmath.expmap(xp, x, c=c), c=c))
+        if self.train_x:
+            xp = pmath.project(pmath.expmap0(self.xp, c=c), c=c)
+            return self.grad_fix(pmath.project(pmath.expmap(xp, x, c=c), c=c))
 
-    return self.grad_fix(pmath.project(pmath.expmap0(x, c=c), c=c))
+        return self.grad_fix(pmath.project(pmath.expmap0(x, c=c), c=c))
 
     def extra_repr(self):
         return "c={}, train_x={}".format(self.c, self.train_x)
