@@ -208,19 +208,22 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
                 teacher_out = student_out.detach()
                 '''
                 student_out = student(images)
-                # Get effective curvatures for this epoch.
                 c_dict = curvatures.effective(epoch, args)
-                # Classifier supervised branch: used by labeled CE.
-                student_proj_cls_sup = hyperbolic_projector(student_out, c=c_dict["c_cls_sup"])
-                student_out_cls_sup = hyperbolic_classifier(student_proj_cls_sup, c=c_dict["c_cls_sup"])
-                # Classifier unsupervised branch: used by DistillLoss and me-max.
-                student_proj_cls_unsup = hyperbolic_projector(student_out, c=c_dict["c_cls_unsup"])
-                student_out_cls_unsup = hyperbolic_classifier(student_proj_cls_unsup, c=c_dict["c_cls_unsup"])
+                _proj_cache = {}
+
+                def _proj(c):
+                    k = id(c)
+                    if k not in _proj_cache:
+                        _proj_cache[k] = hyperbolic_projector(student_out, c=c)
+                    return _proj_cache[k]
+
+                student_proj_cls_sup   = _proj(c_dict["c_cls_sup"])
+                student_out_cls_sup    = hyperbolic_classifier(student_proj_cls_sup,   c=c_dict["c_cls_sup"])
+                student_proj_cls_unsup = _proj(c_dict["c_cls_unsup"])
+                student_out_cls_unsup  = hyperbolic_classifier(student_proj_cls_unsup, c=c_dict["c_cls_unsup"])
                 teacher_out = student_out_cls_unsup.detach()
-                # Representation supervised branch: used by supervised contrastive loss.
-                student_proj_rep_sup = hyperbolic_projector(student_out, c=c_dict["c_rep_sup"])
-                # Representation unsupervised branch: used by unsupervised InfoNCE loss.
-                student_proj_rep_unsup = hyperbolic_projector(student_out, c=c_dict["c_rep_unsup"])
+                student_proj_rep_sup   = _proj(c_dict["c_rep_sup"])
+                student_proj_rep_unsup = _proj(c_dict["c_rep_unsup"])
 
                 # clustering, sup
                 # sup_logits = torch.cat([f[mask_lab] for f in (student_out / 0.1).chunk(2)], dim=0)
@@ -382,7 +385,7 @@ def test(model, test_loader, epoch, save_name, args, hyperbolic_projector, hyper
             # hyp_c = hyperbolic_projector.get_c(hyp_feat)
             # logits = hyperbolic_classifier(hyp_feat, c=hyp_c)
             c_dict = curvatures.effective(epoch, args)
-            c_eval = c_dict["c_cls_unsup"]
+            c_eval = c_dict[args.c_eval_role]
             hyp_feat = hyperbolic_projector(ec_feat, c=c_eval)
             logits = hyperbolic_classifier(hyp_feat, c=c_eval)
 
@@ -455,6 +458,7 @@ if __name__ == "__main__":
     # unfreeze
     parser.add_argument('--c_unfreeze_rep_cls_epoch', type=int, default=10)
     parser.add_argument('--c_unfreeze_sup_unsup_epoch', type=int, default=10)
+    parser.add_argument('--c_eval_role', default='c_cls_unsup', choices=['c_rep_sup', 'c_rep_unsup', 'c_cls_sup', 'c_cls_unsup'])
 
     # ----------------------
     # INIT
