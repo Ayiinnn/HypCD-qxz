@@ -1,0 +1,196 @@
+# HypCD-QXZ Environment / Dataset / Backbone Version Record
+
+## Time
+Tue Jun  9 12:43:36 AM CST 2026
+
+## Host
+gpu-xuzeqiu
+
+## Python / Conda
+/data/miniconda3/envs/hypcd/bin/python
+Python 3.8.20
+Conda env: hypcd
+
+## PyTorch / CUDA
+torch: 2.0.1+cu118
+torch cuda: 11.8
+cuda available: True
+gpu count: 4
+gpu 0: Tesla V100S-PCIE-32GB
+gpu 1: Tesla V100S-PCIE-32GB
+gpu 2: Tesla V100S-PCIE-32GB
+gpu 3: Tesla V100S-PCIE-32GB
+
+## NVIDIA
+Tue Jun  9 00:43:37 2026       
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 470.223.02   Driver Version: 470.223.02   CUDA Version: 11.4     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|                               |                      |               MIG M. |
+|===============================+======================+======================|
+|   0  Tesla V100S-PCI...  On   | 00000000:00:0D.0 Off |                    0 |
+| N/A   31C    P0    25W / 250W |      0MiB / 32510MiB |      0%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+|   1  Tesla V100S-PCI...  On   | 00000000:00:0E.0 Off |                    0 |
+| N/A   34C    P0    25W / 250W |      0MiB / 32510MiB |      0%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+|   2  Tesla V100S-PCI...  On   | 00000000:00:0F.0 Off |                    0 |
+| N/A   35C    P0    27W / 250W |      0MiB / 32510MiB |      0%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+|   3  Tesla V100S-PCI...  On   | 00000000:00:10.0 Off |                    0 |
+| N/A   33C    P0    25W / 250W |      0MiB / 32510MiB |      0%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+                                                                               
++-----------------------------------------------------------------------------+
+| Processes:                                                                  |
+|  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+|        ID   ID                                                   Usage      |
+|=============================================================================|
+|  No running processes found                                                 |
++-----------------------------------------------------------------------------+
+
+## Important Python Packages
+torch: 2.0.1+cu118
+torchvision: 0.15.2+cu118
+xformers: 0.0.20
+timm: 0.5.4
+geoopt: 0.5.0
+numpy: 1.24.4
+scipy: 1.10.1
+sklearn: 1.1.1
+PIL: 9.1.1
+kmeans_pytorch.kmeans signature: (X, num_clusters, distance='euclidean', cluster_centers=[], tol=0.0001, tqdm_flag=True, iter_limit=0, device=device(type='cpu'), gamma_for_soft_dtw=0.001, seed=None)
+
+## Config Paths
+4:cub_root = '/data/datasets/cub'
+5:car_root = '/data/datasets/cars'
+6:aircraft_root = '/data/datasets/fgvc-aircraft-2013b'
+7:cifar_10_root = '/data/datasets/cifar10'
+8:cifar_100_root = '/data/datasets/cifar100'
+9:imagenet_root = '/data/datasets/imagenet'
+10:herbarium_dataroot = '/data/datasets/herbarium_19'
+11:pets_root = '/data/datasets/oxford_pets'
+19:dino_pretrain_path = '/data/pretrained/dino_vitb16_pretrain.pth'
+20:dinov2_pretrain_path = '/data/pretrained/dinov2_vitb14_reg4_pretrain.pth'
+26:exp_root = '/data/projects/HypCD/dev_outputs'  # All logs and checkpoints will be saved here
+
+## Dataset Directories
+### /data/datasets/cub
+2.3G	/data/datasets/cub
+8
+attributes.txt
+CUB_200_2011
+CUB_200_2011.tgz
+
+### /data/datasets/cub/CUB_200_2011
+1.2G	/data/datasets/cub/CUB_200_2011
+12
+attributes
+bounding_boxes.txt
+classes.txt
+image_class_labels.txt
+images
+images.txt
+parts
+README
+train_test_split.txt
+
+### /data/datasets/fgvc-aircraft-2013b
+2.6G	/data/datasets/fgvc-aircraft-2013b
+27
+data
+evaluation.m
+example_evaluation.m
+README.html
+README.md
+vl_argparse.m
+vl_pr.m
+vl_roc.m
+vl_tpfp.m
+
+### /data/datasets/fgvc-aircraft-2013b/data
+2.6G	/data/datasets/fgvc-aircraft-2013b/data
+10019
+families.txt
+images
+images_box.txt
+images_family_test.txt
+images_family_train.txt
+images_family_trainval.txt
+images_family_val.txt
+images_manufacturer_test.txt
+images_manufacturer_train.txt
+images_manufacturer_trainval.txt
+images_manufacturer_val.txt
+images_test.txt
+images_train.txt
+images_val.txt
+images_variant_test.txt
+images_variant_train.txt
+images_variant_trainval.txt
+images_variant_val.txt
+manufacturers.txt
+variants.txt
+
+### /data/datasets/cars
+3.8G	/data/datasets/cars
+16195
+car_devkit.tgz
+cars_test
+cars_test.tgz
+cars_train
+cars_train.tgz
+devkit
+
+### /data/datasets/cifar10
+341M	/data/datasets/cifar10
+9
+cifar-10-batches-py
+cifar-10-python.tar.gz
+
+### /data/datasets/cifar100
+NOT FOUND
+
+## Dataset Archives / Checksums
+### /data/datasets/cub/CUB_200_2011.tgz
+-rw-r--r-- 1 root root 1.1G May 27 01:05 /data/datasets/cub/CUB_200_2011.tgz
+97eceeb196236b17998738112f37df78  /data/datasets/cub/CUB_200_2011.tgz
+
+### /data/datasets/fgvc-aircraft-2013b.tar.gz
+-rw-r--r-- 1 root root 2.6G May 27 01:11 /data/datasets/fgvc-aircraft-2013b.tar.gz
+d4acdd33327262359767eeaa97a4f732  /data/datasets/fgvc-aircraft-2013b.tar.gz
+
+### /data/datasets/cars.tgz
+NOT FOUND
+
+### /data/datasets/cars.zip
+NOT FOUND
+
+## Dataset Identity Notes
+CUB-200-2011: expected official archive CUB_200_2011.tgz, md5 97eceeb196236b17998738112f37df78
+FGVC-Aircraft: expected official 2013b archive fgvc-aircraft-2013b.tar.gz, md5 32eca553f897e747706144f3bb444df0
+Stanford-Cars: expected structure cars_train / cars_test / devkit, with cars_test_annos_withlabels.mat if test labels are used
+
+## Backbone Weights
+### /data/pretrained/dino_vitb16_pretrain.pth
+-rw-r--r-- 1 root root 328M Apr 21  2021 /data/pretrained/dino_vitb16_pretrain.pth
+552daf80332dbde16bba2a52c6508b77  /data/pretrained/dino_vitb16_pretrain.pth
+bf34ad0f424b9029b593e8dc3ed553bf26e88bcba0d32bf3e62a6209cb64c85e  /data/pretrained/dino_vitb16_pretrain.pth
+
+### /data/pretrained/dinov2_vitb14_reg4_pretrain.pth
+-rw-r--r-- 1 root root 331M Oct 27  2023 /data/pretrained/dinov2_vitb14_reg4_pretrain.pth
+13d13c7ba67434c75e9f06b5cf2e4ac9  /data/pretrained/dinov2_vitb14_reg4_pretrain.pth
+73182a088cf94833c94b1666d1c99e02fe87e2007bff57b564fb6206e25dba71  /data/pretrained/dinov2_vitb14_reg4_pretrain.pth
+
+## Backbone Identity Notes
+DINO v1: dino_vitb16_pretrain.pth
+DINOv2: dinov2_vitb14_reg4_pretrain.pth, ViT-B/14 with registers
+
+## Current Requirements Snapshot
+requirements_qxz.txt generated by: pip freeze --all | sort
