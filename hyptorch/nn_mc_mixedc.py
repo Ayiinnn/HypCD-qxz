@@ -611,19 +611,29 @@ class ProductManifold(nn.Module):
         init_logits = torch.as_tensor(init_logits, dtype=torch.float32)
         self.role_logits[name] = nn.Parameter(init_logits, requires_grad=learnable)
 
-    def role_weight(self, role, ref=None):
+    def role_weight(self, role, ref=None, use_gate=True):
         """Effective per-factor weights for a role.
-        'align' is uniform AND gate-free (so it always exercises every factor)."""
+        'align' is uniform AND gate-free (so it always exercises every factor).
+        The CLASSIFIER must call this with use_gate=False: the importance gate is
+        a *metric-only* knob, and letting it scale the class logits caused the
+        logits to collapse when a factor's gate shrank (degenerate predictions)."""
         if role == "align":
             w = torch.softmax(self.align_logits, dim=0)
         else:
-            w = torch.softmax(self.role_logits[role], dim=0) * self.gates()
+            w = torch.softmax(self.role_logits[role], dim=0)
+            if use_gate:
+                w = w * self.gates()
         if ref is not None:
             w = w.to(dtype=ref.dtype, device=ref.device)
         return w
 
     def gates(self):
-        return F.softplus(self.gate_raw) + 1e-4
+        # Normalized RELATIVE importance: sums to n_factors (mean 1). The
+        # optimizer can shift weight between factors but cannot shrink the
+        # overall scale to ~0. Previously gates were softplus(raw) and the
+        # optimizer drove a gate to ~0.01 purely to deflate an over-large
+        # distance/SupCon loss, which then crushed the (gate-coupled) classifier.
+        return self.n_factors * torch.softmax(self.gate_raw, dim=0)
 
     # ------------------------------------------------------------- curvature
     def factor_c(self, i, ref=None):
@@ -652,7 +662,13 @@ class ProductManifold(nn.Module):
         for i, s in enumerate(self.specs):
             t = self.projections[i](feat)
             if s.kind == "euclidean":
-                x = t
+                # L2-NORMALIZE the flat factor. Raw high-dim L2 distance is
+                # unbounded and otherwise blows up the product distance (and the
+                # distance-mode contrastive/SupCon losses, seen at ~30-67).
+                # Normalized, this factor supplies the angular/cosine geometry
+                # (the natural "flat" companion to the curved factor) and its
+                # distance is bounded, comparable to the other factors.
+                x = t / (torch.norm(t, dim=-1, keepdim=True) + 1e-9)
             elif s.kind == "poincare":
                 c = self.factor_c(i, ref=t)
                 cr = self.clip_r.get(i, None)
@@ -819,7 +835,11 @@ class _CosineHead(nn.Module):
 class ProductMLR(nn.Module):
     """Product-space classifier: one head per factor, combined by a role weighting.
 
-    Poincare factor -> HyperbolicMLR ; flat factor -> cosine head.
+    Poincare factor -> HypLinear (hyperbolic FC; its output coordinates are used
+    as logits, exactly as the original HypCD classifier does). NOTE: we use
+    HypLinear rather than HyperbolicMLR because HyperbolicMLR (hyperbolic MLR /
+    softmax) was found to underperform in prior experiments.
+    Flat (euclidean / spherical) factor -> cosine head (the standard SimGCD head).
     A per-head learnable logit_scale balances heterogeneous logit magnitudes.
     The manifold is referenced (not registered as a submodule) so its parameters
     are owned solely by the ProductManifold instance.
@@ -836,7 +856,8 @@ class ProductMLR(nn.Module):
         self.heads = nn.ModuleList()
         for s in self.specs:
             if s.kind == "poincare":
-                self.heads.append(HyperbolicMLR(ball_dim=s.dim, n_classes=n_classes, c=s.init_c))
+                # original HypCD classifier: HypLinear, output coords -> logits
+                self.heads.append(HypLinear(in_features=s.dim, out_features=n_classes, c=s.init_c))
             else:
                 self.heads.append(_CosineHead(s.dim, n_classes))
         self.logit_scale = nn.Parameter(torch.ones(len(self.specs)))
@@ -848,7 +869,7 @@ class ProductMLR(nn.Module):
     def forward(self, X, role=None):
         role = role or self.role
         Xsp = self.manifold.split(X)
-        w = self.manifold.role_weight(role, ref=X)
+        w = self.manifold.role_weight(role, ref=X, use_gate=False)  # gate is metric-only
         logits = None
         for i, s in enumerate(self.specs):
             if s.kind == "poincare":
