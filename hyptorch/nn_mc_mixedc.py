@@ -561,8 +561,17 @@ class ProductManifold(nn.Module):
             offs.append((acc, acc + d)); acc += d
         self.offsets = offs
 
-        # shared trunk -> per-factor tangent projection (keeps representation shared)
-        self.projections = nn.ModuleList([nn.Linear(self.in_dim, d) for d in self.dims])
+        # ROOT-CAUSE FIX: factors are obtained by SLICING the raw backbone
+        # feature -- there is NO learned per-factor projection. A random-init
+        # nn.Linear here scrambled the pretrained DINO structure at init and had
+        # to be re-learned from scratch, which crippled novel-class discovery
+        # (Old held up via supervised CE, New collapsed). Slicing preserves the
+        # feature values and makes the 1-factor case ("P:768") reduce EXACTLY to
+        # the single-ball HypSimGCD baseline.
+        assert self.total_dim <= self.in_dim, (
+            f"sum of factor dims ({self.total_dim}) must be <= feature dim "
+            f"({self.in_dim}); factors are sliced from the raw feature, so size "
+            f"them to sum to feat_dim (e.g. 'P:768' or 'E:384,P:384')")
 
         # per-factor learnable curvature (poincare = curvature, spherical = angular scale)
         self.curv = nn.ModuleDict()
@@ -657,10 +666,12 @@ class ProductManifold(nn.Module):
 
     # ------------------------------------------------------------ projection
     def project(self, feat):
-        """feat [B,in_dim] -> concatenated on-manifold coords [B,total_dim]."""
+        """feat [B,in_dim] -> concatenated on-manifold coords [B,total_dim].
+        Each factor is a SLICE of the raw feature (no learned projection)."""
         outs = []
         for i, s in enumerate(self.specs):
-            t = self.projections[i](feat)
+            a, b = self.offsets[i]
+            t = feat[..., a:b]                       # slice raw feature (preserves DINO structure)
             if s.kind == "euclidean":
                 # L2-NORMALIZE the flat factor. Raw high-dim L2 distance is
                 # unbounded and otherwise blows up the product distance (and the
@@ -755,12 +766,15 @@ class ProductManifold(nn.Module):
         return min(range(self.n_factors), key=lambda i: self.specs[i].init_c)
 
     def angle_sim_matrix(self, A, B):
-        """Cosine similarity in the designated 'angle' factor (the flat factor).
-        This is the Euclidean end of the angle->distance curriculum."""
+        """Cosine similarity of the designated 'angle' factor's coordinates --
+        the Euclidean end of the angle->distance curriculum. This mirrors the
+        original HypCD angle branch exactly: cosine of the L2-normalized
+        on-manifold coordinates (NOT the logmap tangent), so the 1-factor case
+        reduces to the baseline's cosine contrastive."""
         i = self.angle_factor_index()
         Asp, Bsp = self.split(A), self.split(B)
-        Ai = F.normalize(self._to_tangent(i, Asp[i]), dim=-1)
-        Bi = F.normalize(self._to_tangent(i, Bsp[i]), dim=-1)
+        Ai = F.normalize(Asp[i], dim=-1)
+        Bi = F.normalize(Bsp[i], dim=-1)
         return Ai @ Bi.t()
 
     # ------------------------------------------------------ regularizers/logs

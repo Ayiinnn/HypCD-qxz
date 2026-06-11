@@ -391,8 +391,8 @@ if __name__ == "__main__":
     parser.add_argument('--role_init_strength', type=float, default=0.7, help='initial skew of cls(flat)/rep(curved) role weights')
 
     # alignment + regularizers
-    parser.add_argument('--align_weight', type=float, default=1.0, help='full-metric anchor loss weight (load-bearing)')
-    parser.add_argument('--radius_weight', type=float, default=0.1, help='effective-radius homeostasis penalty weight')
+    parser.add_argument('--align_weight', type=float, default=0.0, help='full-metric anchor loss weight. OFF by default (add at a later incremental step); set e.g. 1.0 to enable')
+    parser.add_argument('--radius_weight', type=float, default=0.0, help='effective-radius homeostasis penalty weight. OFF by default; set e.g. 0.1 to enable')
     parser.add_argument('--target_radius', type=float, default=0.85, help='target sqrt(c)*clip_r per poincare factor')
     parser.add_argument('--degeneracy_weight', type=float, default=0.0, help='per-factor variance-floor penalty weight (0=off)')
     parser.add_argument('--degeneracy_floor', type=float, default=0.1)
