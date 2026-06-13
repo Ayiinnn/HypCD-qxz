@@ -24,7 +24,7 @@ from models import vision_transformer2 as vits2
 
 # hyperbolic / product-space
 import geoopt.optim.radam as radam_
-import hyptorch.nn_mc_mixedc as hypnn
+import hyptorch.nn_mc as hypnn
 
 
 # ============================================================================
@@ -43,7 +43,13 @@ import hyptorch.nn_mc_mixedc as hypnn
 # ============================================================================
 
 
-def set_random_seed(seed: int) -> None:
+def set_random_seed(seed: int, deterministic: bool = False, strict: bool = False) -> None:
+    # [determinism] CUBLAS_WORKSPACE_CONFIG must be set BEFORE the first cuBLAS call
+    # (any GPU matmul). We set it at the very top, before torch.cuda.* touches the
+    # CUDA context. The bulletproof alternative is to export it in the shell:
+    #     export CUBLAS_WORKSPACE_CONFIG=:4096:8
+    if deterministic or strict:
+        os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':4096:8')
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
@@ -51,6 +57,14 @@ def set_random_seed(seed: int) -> None:
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
+    if deterministic or strict:
+        # strict (warn_only=False) RAISES on the first op without a deterministic
+        # implementation -> use it to LOCATE the kernel that breaks reproducibility.
+        # warn_only=True lets training finish, using deterministic kernels where they exist.
+        torch.use_deterministic_algorithms(True, warn_only=not strict)
+        print('[determinism] use_deterministic_algorithms(True, warn_only={}) | '
+              'CUBLAS_WORKSPACE_CONFIG={}'.format(
+                  not strict, os.environ.get('CUBLAS_WORKSPACE_CONFIG')))
 
 
 # ----------------------------------------------------------------------------
@@ -358,6 +372,11 @@ if __name__ == "__main__":
     parser.add_argument('--sup_weight', type=float, default=0.35)
     parser.add_argument('--n_views', default=2, type=int)
     parser.add_argument('--seed', default=0, type=int)
+    # [determinism] opt-in; default False -> byte-identical to the original behavior.
+    parser.add_argument('--deterministic', action='store_true', default=False,
+                        help='Enable deterministic algorithms (warn_only). Slower, but reproducible run-to-run on identical HW + library versions.')
+    parser.add_argument('--strict_deterministic', action='store_true', default=False,
+                        help='Like --deterministic but RAISES on the first non-deterministic op; use to find which kernel breaks reproducibility.')
 
     parser.add_argument('--memax_weight', type=float, default=2)
     parser.add_argument('--warmup_teacher_temp', default=0.07, type=float, help='Initial value for the teacher temperature.')
@@ -407,7 +426,7 @@ if __name__ == "__main__":
     # ----------------------
     args = parser.parse_args()
     print(args)
-    set_random_seed(args.seed)
+    set_random_seed(args.seed, deterministic=args.deterministic, strict=args.strict_deterministic)
     device = torch.device('cuda:0')
     args = get_class_splits(args)
 
@@ -470,7 +489,18 @@ if __name__ == "__main__":
     sample_weights = torch.DoubleTensor(sample_weights)
     sampler = torch.utils.data.WeightedRandomSampler(sample_weights, num_samples=len(train_dataset))
 
-    train_loader = DataLoader(train_dataset, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False, sampler=sampler, drop_last=True, pin_memory=True)
+    # [determinism] reproducible data loading; generator/worker_init_fn = None is a no-op,
+    # so default (non-deterministic) behavior is unchanged unless a switch is passed.
+    loader_generator = None
+    worker_init_fn = None
+    if args.deterministic or args.strict_deterministic:
+        loader_generator = torch.Generator()
+        loader_generator.manual_seed(args.seed)
+        def worker_init_fn(worker_id):
+            worker_seed = torch.initial_seed() % (2 ** 32)
+            np.random.seed(worker_seed)
+            random.seed(worker_seed)
+    train_loader = DataLoader(train_dataset, num_workers=args.num_workers, batch_size=args.batch_size, shuffle=False, sampler=sampler, drop_last=True, pin_memory=True, generator=loader_generator, worker_init_fn=worker_init_fn)
     test_loader_unlabelled = DataLoader(unlabelled_train_examples_test, num_workers=args.num_workers, batch_size=256, shuffle=False, pin_memory=False)
     test_loader_labelled = DataLoader(test_dataset, num_workers=args.num_workers, batch_size=256, shuffle=False, pin_memory=False)
 
