@@ -1,0 +1,130 @@
+{
+  "rep": {
+    "name": "rep",
+    "method": "simgcd",
+    "dataset": "cub",
+    "dino": "v1",
+    "split": "train_unlabelled",
+    "n_points": 4000,
+    "dim": 768,
+    "n_classes": 178,
+    "n_known_classes": 100,
+    "curvature_c": 0.1,
+    "ball_radius": 3.162277660168379,
+    "global_mean_depth": 0.2539811432361603,
+    "embedding": {
+      "embed": "pca",
+      "explained_variance_ratio": [
+        0.07972204685211182,
+        0.07872027903795242
+      ]
+    },
+    "radial": {
+      "depth_mean": 4.599998950958252,
+      "depth_std": 8.719733841644484e-07,
+      "depth_min": 4.599997520446777,
+      "depth_max": 4.600001335144043,
+      "eucl_norm_mean": 1.9651193618774414,
+      "eucl_norm_max": 1.9651199579238892,
+      "ball_radius": 3.162277660168379,
+      "rel_norm_mean": 0.6214253306388855,
+      "rel_norm_max": 0.6214255094528198,
+      "frac_near_boundary_0.9R": 0.0
+    },
+    "directional_uniformity": {
+      "mean_resultant_length": 0.09063227474689484,
+      "cos_abs_mean": 0.13918457925319672,
+      "cos_mean": 0.009802445769309998,
+      "cos_std": 0.21104395389556885
+    },
+    "distance_uniformity": {
+      "uniformity_loss_t1": -9.22061580315481,
+      "pair_dist_mean": 7.216236691137081,
+      "pair_dist_std": 0.7765586861911474,
+      "pair_dist_median": 7.433617398153819
+    },
+    "alignment_separation": {
+      "alignment_intra_mean": 2.594623058940436,
+      "separation_intermean_mean": 5.101634529938287,
+      "separation_over_alignment": 1.966233403496924
+    },
+    "delta_hyperbolicity": {
+      "delta_rel_mean": 0.3402932691843738,
+      "delta_rel_std": 0.00849615062211872,
+      "delta_batch": 512,
+      "delta_n_tries": 8
+    },
+    "hierarchy": {
+      "cophenetic_corr": 0.7135774153026373,
+      "class_mean_depth_mean": 3.3712728023529053,
+      "class_mean_depth_std": 0.4936971962451935,
+      "class_mean_depth_known_mean": 3.5962746143341064,
+      "class_mean_depth_novel_mean": 3.146270751953125
+    },
+    "predicted_acc_on_split": null
+  },
+  "cls": {
+    "name": "cls",
+    "method": "simgcd",
+    "dataset": "cub",
+    "dino": "v1",
+    "split": "train_unlabelled",
+    "n_points": 4000,
+    "dim": 200,
+    "n_classes": 178,
+    "n_known_classes": 100,
+    "curvature_c": 0.1,
+    "ball_radius": 3.162277660168379,
+    "global_mean_depth": 1.3151652812957764,
+    "embedding": {
+      "embed": "pca",
+      "explained_variance_ratio": [
+        0.010957317426800728,
+        0.07683048397302628
+      ]
+    },
+    "radial": {
+      "depth_mean": 9.124794006347656,
+      "depth_std": 0.646628737449646,
+      "depth_min": 7.694492340087891,
+      "depth_max": 12.695808410644531,
+      "eucl_norm_mean": 2.822220802307129,
+      "eucl_norm_max": 3.0501608848571777,
+      "ball_radius": 3.162277660168379,
+      "rel_norm_mean": 0.8924645185470581,
+      "rel_norm_max": 0.9645455479621887,
+      "frac_near_boundary_0.9R": 0.3275
+    },
+    "directional_uniformity": {
+      "mean_resultant_length": 0.38673144578933716,
+      "cos_abs_mean": 0.16854190826416016,
+      "cos_mean": 0.1504363715648651,
+      "cos_std": 0.17083832621574402
+    },
+    "distance_uniformity": {
+      "uniformity_loss_t1": -16.049915744267725,
+      "pair_dist_mean": 15.48261231225183,
+      "pair_dist_std": 1.223410326545782,
+      "pair_dist_median": 15.562834693336885
+    },
+    "alignment_separation": {
+      "alignment_intra_mean": 6.76553271317246,
+      "separation_intermean_mean": 6.002599744746868,
+      "separation_over_alignment": 0.8872323878018655
+    },
+    "delta_hyperbolicity": {
+      "delta_rel_mean": 0.18643326330011592,
+      "delta_rel_std": 0.006327589472790102,
+      "delta_batch": 512,
+      "delta_n_tries": 8
+    },
+    "hierarchy": {
+      "cophenetic_corr": 0.7851773514685751,
+      "class_mean_depth_mean": 4.165974140167236,
+      "class_mean_depth_std": 0.8133796453475952,
+      "class_mean_depth_known_mean": 4.391964912414551,
+      "class_mean_depth_novel_mean": 3.93998384475708
+    },
+    "predicted_acc_on_split": 0.261
+  }
+}

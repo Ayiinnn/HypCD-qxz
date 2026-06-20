@@ -1,0 +1,64 @@
+{
+  "name": "cls",
+  "method": "simgcd",
+  "dataset": "scars",
+  "dino": "v1",
+  "split": "train_unlabelled",
+  "n_points": 4000,
+  "dim": 196,
+  "n_classes": 196,
+  "n_known_classes": 98,
+  "curvature_c": 0.1,
+  "ball_radius": 3.162277660168379,
+  "global_mean_depth": 1.4291836023330688,
+  "embedding": {
+    "embed": "pca",
+    "explained_variance_ratio": [
+      0.029104894027113914,
+      0.07291605323553085
+    ]
+  },
+  "radial": {
+    "depth_mean": 8.407941818237305,
+    "depth_std": 0.8405547738075256,
+    "depth_min": 7.018805980682373,
+    "depth_max": 24.03481101989746,
+    "eucl_norm_mean": 2.7386465072631836,
+    "eucl_norm_max": 3.1591155529022217,
+    "ball_radius": 3.162277660168379,
+    "rel_norm_mean": 0.8660359978675842,
+    "rel_norm_max": 0.9990000128746033,
+    "frac_near_boundary_0.9R": 0.10675
+  },
+  "directional_uniformity": {
+    "mean_resultant_length": 0.38956090807914734,
+    "cos_abs_mean": 0.16913112998008728,
+    "cos_mean": 0.15068989992141724,
+    "cos_std": 0.1648816168308258
+  },
+  "distance_uniformity": {
+    "uniformity_loss_t1": -14.508155597891912,
+    "pair_dist_mean": 14.073302843489547,
+    "pair_dist_std": 1.345920981443521,
+    "pair_dist_median": 14.028548999830385
+  },
+  "alignment_separation": {
+    "alignment_intra_mean": 6.680604451938649,
+    "separation_intermean_mean": 4.951688997225634,
+    "separation_over_alignment": 0.7412037386897673
+  },
+  "delta_hyperbolicity": {
+    "delta_rel_mean": 0.13779665280316944,
+    "delta_rel_std": 0.025423798782474284,
+    "delta_batch": 512,
+    "delta_n_tries": 8
+  },
+  "hierarchy": {
+    "cophenetic_corr": 0.7094175877940899,
+    "class_mean_depth_mean": 3.5875515937805176,
+    "class_mean_depth_std": 0.5307325720787048,
+    "class_mean_depth_known_mean": 3.77925443649292,
+    "class_mean_depth_novel_mean": 3.395848512649536
+  },
+  "predicted_acc_on_split": 0.26675
+}

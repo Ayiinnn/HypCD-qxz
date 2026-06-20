@@ -24,7 +24,7 @@ from models import vision_transformer2 as vits2
 
 # hyperbolic / product-space
 import geoopt.optim.radam as radam_
-import hyptorch.nn_mc as hypnn
+import hyptorch.nn_mc_mixedc as hypnn
 
 
 # ============================================================================
