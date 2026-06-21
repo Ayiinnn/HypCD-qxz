@@ -79,17 +79,26 @@ class ForegroundCropper:
     # ------------------------------------------------------------------ #
     @torch.no_grad()
     def saliency(self, images: torch.Tensor) -> torch.Tensor:
-        if self.source == "attention":
-            # DINO v1 ViT: last-block CLS->patch attention, averaged over heads.
-            out = self.backbone.get_last_selfattention(images)
-            attn = out[1] if isinstance(out, (tuple, list)) else out
-            sal = attn[:, :, 0, 1:].mean(dim=1)               # (N, P)
-        else:
-            # DINOv2 (or any ViT exposing forward_features): CLS<->patch cosine.
-            feats = self.backbone.forward_features(images)
-            cls = F.normalize(feats["x_norm_clstoken"], dim=-1)        # (N, D)
-            pat = F.normalize(feats["x_norm_patchtokens"], dim=-1)     # (N, P, D)
-            sal = torch.einsum("nd,npd->np", cls, pat).clamp_min(0)    # (N, P)
+        # Localisation only: run the backbone in eval mode so DropPath /
+        # stochastic depth is disabled. This makes the boxes deterministic and
+        # free of training-time noise; the backbone's training state is restored
+        # afterwards so the *object encoding* forward still sees DropPath.
+        was_training = self.backbone.training
+        self.backbone.eval()
+        try:
+            if self.source == "attention":
+                # DINO v1 ViT: last-block CLS->patch attention, averaged over heads.
+                out = self.backbone.get_last_selfattention(images)
+                attn = out[1] if isinstance(out, (tuple, list)) else out
+                sal = attn[:, :, 0, 1:].mean(dim=1)               # (N, P)
+            else:
+                # DINOv2 (or any ViT exposing forward_features): CLS<->patch cosine.
+                feats = self.backbone.forward_features(images)
+                cls = F.normalize(feats["x_norm_clstoken"], dim=-1)        # (N, D)
+                pat = F.normalize(feats["x_norm_patchtokens"], dim=-1)     # (N, P, D)
+                sal = torch.einsum("nd,npd->np", cls, pat).clamp_min(0)    # (N, P)
+        finally:
+            self.backbone.train(was_training)
         return sal
 
     # ------------------------------------------------------------------ #
@@ -103,10 +112,13 @@ class ForegroundCropper:
         sal = sal.reshape(N, g * g)
 
         # Keep the smallest set of patches holding `keep` fraction of the mass
-        # (DINO `visualize_attention.py` thresholding).
+        # (DINO `visualize_attention.py` thresholding). cumsum has no deterministic
+        # CUDA kernel, so we run it on CPU: this keeps the foreground boxes
+        # reproducible under torch.use_deterministic_algorithms(True) and is cheap
+        # (one small no-grad reduction per step).
         prob = sal / sal.sum(dim=-1, keepdim=True).clamp_min(eps)
         vals, idx = torch.sort(prob, dim=-1, descending=True)
-        cum = torch.cumsum(vals, dim=-1)
+        cum = torch.cumsum(vals.cpu(), dim=-1).to(vals.device)
         keep_sorted = cum <= self.keep
         keep_sorted[:, 0] = True  # always keep the strongest patch
         mask = torch.zeros_like(prob, dtype=torch.bool)

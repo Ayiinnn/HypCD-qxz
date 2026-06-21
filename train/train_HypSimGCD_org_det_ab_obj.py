@@ -4,6 +4,7 @@ import sys
 import os
 import math
 import random
+import contextlib
 import numpy as np
 import torch
 import torch.nn as nn
@@ -30,6 +31,34 @@ from hyptorch.pmath import dist_matrix
 # object-level branch (shared backbone/projector/classifier; no new params)
 from models.foreground import ForegroundCropper
 from models.object_branch import ObjectBranch
+
+
+@contextlib.contextmanager
+def preserve_rng_state(ref_tensor):
+    """Run a block without letting it advance the global RNG.
+
+    The object branch issues extra backbone forwards (foreground cropper +
+    object encoding). In training mode those forwards consume the DropPath /
+    stochastic-depth RNG of the finetuned blocks, which would shift the random
+    stream of the *image* branch on every subsequent batch and break bit-level
+    reproducibility with the original (single-branch) run.
+
+    Saving the CPU (and the relevant CUDA device) RNG state on entry and
+    restoring it on exit makes the image branch byte-for-byte independent of the
+    object branch: with the object weights at 0 (or ``--no_object_branch``) the
+    variant reproduces the original exactly, and changing object hyper-parameters
+    never moves the image trajectory. The object branch itself stays
+    deterministic (its RNG derives from the saved state each step).
+    """
+    cpu_state = torch.get_rng_state()
+    device = ref_tensor.device if ref_tensor.is_cuda else None
+    cuda_state = torch.cuda.get_rng_state(device) if device is not None else None
+    try:
+        yield
+    finally:
+        torch.set_rng_state(cpu_state)
+        if cuda_state is not None:
+            torch.cuda.set_rng_state(cuda_state, device)
 
 
 def set_random_seed(seed: int, deterministic: bool = False, strict: bool = False) -> None:
@@ -234,9 +263,12 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
                 obj_loss = None
                 obj_logs = None
                 if args.use_object_branch:
-                    obj_images = fg_cropper(images)
-                    obj_feat = hyperbolic_projector(student(obj_images))
-                    obj_logits = hyperbolic_classifier(obj_feat)
+                    # Isolate the auxiliary backbone forwards from the global RNG
+                    # so the image branch is unaffected (see preserve_rng_state).
+                    with preserve_rng_state(images):
+                        obj_images = fg_cropper(images)
+                        obj_feat = hyperbolic_projector(student(obj_images))
+                        obj_logits = hyperbolic_classifier(obj_feat)
                     obj_loss, obj_logs = object_branch(
                         img_feat=student_proj,
                         obj_feat=obj_feat,
