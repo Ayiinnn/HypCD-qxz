@@ -542,14 +542,33 @@ def plot_overview(name, title, xy, xy_means, d0, labels, is_old, c,
         ax.legend(handles=handles, fontsize=7, loc="upper right",
                   framealpha=0.6, ncol=2)
 
-    # (0,1) disk colored by depth
+    # (0,1) disk colored by depth -- DEPTH-FAITHFUL layout.
+    # The other panels use the PCA/t-SNE projection, whose *radius* only
+    # captures the top-2 tangent directions and therefore badly understates the
+    # true depth (points that truly sit near the boundary look mid-disk).  Here
+    # we instead place each point at its TRUE radius rel-norm = tanh(sqrt(c)*d/2)
+    # (recoverable from the geodesic depth d0 and c) and borrow only the ANGLE
+    # from the projection.  So this panel can be read radially: points near the
+    # rim really are near the boundary.
     ax = axes[0, 1]
     _draw_disk_axes(ax)
-    sc = ax.scatter(xy[:, 0], xy[:, 1], s=7, c=d0, cmap="viridis",
-                    alpha=0.75, linewidths=0, zorder=3)
+    if math.isfinite(R) and c > 0:
+        reln = np.tanh(math.sqrt(c) * d0 / 2.0)            # true rel-norm in [0,1)
+        ang = np.arctan2(xy[:, 1], xy[:, 0])
+        xy_df = np.stack([reln * np.cos(ang), reln * np.sin(ang)], axis=1)
+        sc = ax.scatter(xy_df[:, 0], xy_df[:, 1], s=7, c=d0, cmap="viridis",
+                        alpha=0.75, linewidths=0, zorder=3)
+        frac9 = float(np.mean(reln > 0.9))
+        ax.set_title("2D disk · radius = TRUE depth (rel-norm)\n"
+                     f"{frac9*100:.1f}% of points beyond 0.9·R", fontsize=10)
+    else:
+        sc = ax.scatter(xy[:, 0], xy[:, 1], s=7, c=d0, cmap="viridis",
+                        alpha=0.75, linewidths=0, zorder=3)
+        ax.set_title("2D disk · colored by depth", fontsize=11)
     cb = fig.colorbar(sc, ax=ax, fraction=0.046, pad=0.04)
     cb.set_label("geodesic depth  d(0,x)", fontsize=9)
-    ax.set_title("2D disk · colored by depth (radius = hierarchy)", fontsize=11)
+    cb.formatter.set_useOffset(False)        # avoid the ugly "1e-6+4.6" offset
+    cb.update_ticks()
 
     # (0,2) disk old vs new
     ax = axes[0, 2]
@@ -570,6 +589,7 @@ def plot_overview(name, title, xy, xy_means, d0, labels, is_old, c,
             density=True, label="novel")
     ax.set_xlabel("geodesic depth  d(0,x)"); ax.set_ylabel("density")
     ax.set_title("Radial distribution (hierarchy / radial uniformity)", fontsize=11)
+    ax.ticklabel_format(axis="x", style="plain", useOffset=False)
     ax.legend(fontsize=9)
 
     # (1,1) pairwise hyperbolic distance histogram
