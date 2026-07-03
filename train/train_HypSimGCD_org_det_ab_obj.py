@@ -237,6 +237,7 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
             'w(ent/dist/cls)={}/{}/{}'.format(
                 fg_cropper.source, args.obj_entail_parent,
                 args.obj_entail_weight, args.obj_dist_weight, args.obj_cls_weight))
+        args.logger.info('[object-branch] supervision: {}'.format(object_branch.supervision_desc()))
 
     best_test_acc_lab = 0
     best_train_acc_all = 0
@@ -501,6 +502,49 @@ if __name__ == "__main__":
     # distance loss configuration
     parser.add_argument('--obj_dist_temp', type=float, default=0.1,
                         help='temperature of the hyperbolic-distance InfoNCE')
+    # ---- supervision structure of the three obj losses ----
+    # legacy switch: bit-exact original supervision (same-view diagonal only) for A/B.
+    parser.add_argument('--obj_legacy_supervision', action='store_true', default=False,
+                        help='route all three obj losses through the ORIGINAL code paths '
+                             '(positives/teacher = same-view diagonal only; same-instance '
+                             'cross-view and GT same-class pairs are treated as negatives).')
+    # feature-space InfoNCE (obj_dist)
+    parser.add_argument('--obj_dist_crossview', dest='obj_dist_crossview', action='store_true', default=True,
+                        help='same-instance cross-view object crops are positives of the dist InfoNCE '
+                             '(instead of false negatives).')
+    parser.add_argument('--obj_dist_no_crossview', dest='obj_dist_crossview', action='store_false')
+    parser.add_argument('--obj_dist_lab_mode', type=str, default='pos', choices=['neg', 'neutral', 'pos'],
+                        help="GT same-class pairs (both labelled) in the dist InfoNCE: 'pos'=SupCon-style "
+                             "positives (weight --obj_dist_lab_weight), 'neutral'=removed from the "
+                             "denominator, 'neg'=plain negatives (original).")
+    parser.add_argument('--obj_dist_lab_weight', type=float, default=1.0,
+                        help="positive weight of GT same-class pairs when --obj_dist_lab_mode pos "
+                             "(1.0=full positive as in SupCon, (0,1)=weak positive).")
+    parser.add_argument('--obj_dist_pl_mode', type=str, default='neutral', choices=['neg', 'neutral', 'pos'],
+                        help="same-(confident-)pseudo-label pairs with >=1 unlabelled side: "
+                             "'neutral'=false-negative elimination (default), 'pos'=weak attraction "
+                             "(weight --obj_dist_pl_weight), 'neg'=plain negatives (original).")
+    parser.add_argument('--obj_dist_pl_weight', type=float, default=0.5,
+                        help='positive weight of confident same-pseudo-label pairs when --obj_dist_pl_mode pos.')
+    parser.add_argument('--obj_pl_thresh', type=float, default=0.7,
+                        help='min max-prob of the view-averaged image teacher (softmax at the student '
+                             'temperature 0.1) for a pseudo-label to participate in pair relations; '
+                             'acceptance ramps up naturally as the classifier sharpens.')
+    # entailment cone (obj_entail)
+    parser.add_argument('--obj_ent_crossview', dest='obj_ent_crossview', action='store_true', default=True,
+                        help='also entail the same-instance cross-view (parent view v -> child view v!=v\'); '
+                             'the other view is the same scene, so the relation holds exactly.')
+    parser.add_argument('--obj_ent_no_crossview', dest='obj_ent_crossview', action='store_false')
+    parser.add_argument('--obj_ent_lab_weight', type=float, default=0.5,
+                        help='weight of GT same-class (parent, child) entailment pairs; class-level '
+                             'hierarchy is approximate, hence weak by default (0 disables). '
+                             'Pseudo-labels are never used for the cone.')
+    # classification closeness (obj_cls)
+    parser.add_argument('--obj_cls_teacher', type=str, default='both', choices=['same', 'cross', 'both'],
+                        help="image teacher used to distill each object view: 'same'=matching view "
+                             "(original), 'cross'=other view (SimGCD DistillLoss convention), "
+                             "'both'=view-averaged teacher (default). Same-(pseudo-)label samples "
+                             "interact only through the shared prototypes (neutral), by design.")
     # foreground cropper configuration
     parser.add_argument('--obj_fg_source', type=str, default='auto', choices=['auto', 'attention', 'cls_sim'],
                         help="foreground saliency source. 'auto' -> attention for v1, cls_sim for v2.")

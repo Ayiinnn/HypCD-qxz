@@ -51,7 +51,7 @@ from matplotlib.collections import LineCollection
 
 # Reuse everything from the base visualizer (geometry, embedding, module
 # reconstruction, robust checkpoint loading, dataloader, analyze_ball, ...).
-import visualize_poincare as V
+import draw_poincare as V
 import hyptorch.pmath as pmath
 from hyptorch.entailment import (
     poincare_to_lorentz, half_aperture, oxy_angle,

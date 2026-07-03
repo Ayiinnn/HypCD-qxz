@@ -28,3 +28,9 @@ checkpoints/
 *.pem
 *.key
 *.env
+
+# local shell scripts
+*.sh
+
+# visualization outputs
+visualize/pic/

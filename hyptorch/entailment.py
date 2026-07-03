@@ -115,3 +115,55 @@ def entailment_cone_loss(
     if reduction == "sum":
         return loss.sum()
     return loss
+
+
+# --------------------------------------------------------------------------- #
+# Pairwise variants (added for class-level supervision of the object branch).
+#
+# ``oxy_angle`` above is elementwise (row i of x with row i of y). For
+# supervision structures that pair every parent with several children (e.g.
+# cross-view same-instance pairs, or all labelled same-class pairs, as in
+# SupCon-style supervision) we need the full (N, M) angle matrix. The math is
+# identical -- only the inner product / norms are batched with a matmul.
+# --------------------------------------------------------------------------- #
+def oxy_angle_pairwise(x: Tensor, y: Tensor, curv, eps: float = 1e-8) -> Tensor:
+    """Pairwise exterior angle: entry (i, j) = oxy_angle(x[i], y[j]).
+
+    ``x`` (N, D) and ``y`` (M, D) are *space components* of hyperboloid points
+    (the output of :func:`poincare_to_lorentz`). Returns an (N, M) tensor.
+    Row-wise it matches :func:`oxy_angle`: ``oxy_angle_pairwise(x, y).diag()``
+    equals ``oxy_angle(x, y)`` (up to floating-point associativity).
+    """
+    curv = resolve_c(curv, x)
+    x_time = torch.sqrt(1 / curv + torch.sum(x ** 2, dim=-1))          # (N,)
+    y_time = torch.sqrt(1 / curv + torch.sum(y ** 2, dim=-1))          # (M,)
+
+    xy = x @ y.transpose(-1, -2)                                       # (N, M)
+    c_xyl = curv * (xy - x_time[:, None] * y_time[None, :])            # (N, M)
+
+    acos_numer = y_time[None, :] + c_xyl * x_time[:, None]             # (N, M)
+    acos_denom = torch.sqrt(torch.clamp(c_xyl ** 2 - 1, min=eps))      # (N, M)
+    x_norm = torch.norm(x, dim=-1)                                     # (N,)
+    acos_input = acos_numer / (x_norm[:, None] * acos_denom + eps)
+    return torch.acos(torch.clamp(acos_input, min=-1 + eps, max=1 - eps))
+
+
+def entailment_cone_violation_pairwise(
+    parent: Tensor,
+    child: Tensor,
+    c,
+    aperture_scale: float = 1.2,
+    min_radius: float = 0.1,
+) -> Tensor:
+    """Pairwise cone violations: entry (i, j) is the relu-cone violation of
+    child ``j`` w.r.t. the cone whose apex is parent ``i``.
+
+    Inputs are Poincare-ball points (same ball, curvature ``c``); this is the
+    (N, M) generalization of :func:`entailment_cone_loss` with
+    ``reduction='none'``. The caller applies its own pair weighting.
+    """
+    parent_s = poincare_to_lorentz(parent, c)
+    child_s = poincare_to_lorentz(child, c)
+    angle = oxy_angle_pairwise(parent_s, child_s, curv=c)              # (N, M)
+    aper = half_aperture(parent_s, curv=c, min_radius=min_radius)      # (N,)
+    return torch.clamp(angle - aperture_scale * aper[:, None], min=0)
