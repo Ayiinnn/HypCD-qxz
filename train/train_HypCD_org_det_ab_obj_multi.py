@@ -30,6 +30,7 @@ from hyptorch.pmath import dist_matrix
 
 # object-level branch (shared backbone/projector/classifier; no new params)
 from models.foreground import ForegroundCropper
+from models.gt_bbox import GTBoxCropper
 from models.object_branch_multi import ObjectBranch
 
 
@@ -225,17 +226,25 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
 
     # ---- object-level branch (shared weights, no extra parameters) ----
     fg_cropper = None
+    gt_cropper = None
     object_branch = None
     if args.use_object_branch:
-        fg_cropper = ForegroundCropper(
-            student, model_name=args.model_name, source=args.obj_fg_source,
-            keep=args.obj_fg_keep, box_pad=args.obj_fg_pad, out_size=args.image_size,
-        )
+        if args.use_gtbbox:
+            # dataset GT boxes: crop from the ORIGINAL image, warp-resized with
+            # the same roi_align call as the online cropper (see models/gt_bbox.py).
+            gt_cropper = GTBoxCropper(
+                train_loader.dataset, args.dataset_name, out_size=args.image_size,
+            )
+        else:
+            fg_cropper = ForegroundCropper(
+                student, model_name=args.model_name, source=args.obj_fg_source,
+                keep=args.obj_fg_keep, box_pad=args.obj_fg_pad, out_size=args.image_size,
+            )
         object_branch = ObjectBranch(args)
         args.logger.info(
             '[object-branch] enabled | fg_source={} parent={} '
             'w(ent/dist/cls)={}/{}/{}'.format(
-                fg_cropper.source, args.obj_entail_parent,
+                'gt_bbox' if args.use_gtbbox else fg_cropper.source, args.obj_entail_parent,
                 args.obj_entail_weight, args.obj_dist_weight, args.obj_cls_weight))
         args.logger.info('[object-branch] supervision: {}'.format(object_branch.supervision_desc()))
 
@@ -267,7 +276,10 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
                     # Isolate the auxiliary backbone forwards from the global RNG
                     # so the image branch is unaffected (see preserve_rng_state).
                     with preserve_rng_state(images):
-                        obj_images = fg_cropper(images)
+                        if args.use_gtbbox:
+                            obj_images = gt_cropper(uq_idxs, images)
+                        else:
+                            obj_images = fg_cropper(images)
                         obj_feat = hyperbolic_projector(student(obj_images))
                         obj_logits = hyperbolic_classifier(obj_feat)
                     obj_loss, obj_logs = object_branch(
@@ -540,6 +552,11 @@ if __name__ == "__main__":
                         help='fraction of saliency mass kept as foreground (DINO default 0.6)')
     parser.add_argument('--obj_fg_pad', type=float, default=0.1,
                         help='relative padding added on each side of the foreground box')
+    parser.add_argument('--use_gtbbox', action='store_true', default=False,
+                        help='use dataset ground-truth bounding boxes for the object crops instead of '
+                             'the online saliency-based foreground cropper. The GT box is cropped from '
+                             'the ORIGINAL image and warp-resized to the backbone resolution with the '
+                             'same roi_align call as the online cropper (cub / scars / aircraft only).')
 
     # ----------------------
     # INIT

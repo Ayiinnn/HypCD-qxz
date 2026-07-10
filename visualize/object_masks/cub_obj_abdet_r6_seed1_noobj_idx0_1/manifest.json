@@ -1,0 +1,42 @@
+{
+  "dataset_name": "cub",
+  "dataset_root_from_config": "/data/datasets/cub",
+  "split": "test",
+  "checkpoint": "/data/projects/HypCD/dev_outputs/HypSimGCD_obj_cub/log/obj-abdet-r6_cub_seed1_noobj_(26.06.2026_|_31.397)/checkpoints/model_best_acc_all.pt",
+  "model_name": "v1",
+  "foreground_source": "attention",
+  "obj_fg_keep": 0.6,
+  "obj_fg_pad": 0.1,
+  "image_size": 224,
+  "background": "black",
+  "samples": [
+    {
+      "row": 0,
+      "dataset_index": 0,
+      "label": 0,
+      "source_path": "/data/datasets/cub/CUB_200_2011/images/001.Black_footed_Albatross/Black_Footed_Albatross_0046_18.jpg",
+      "box_xyxy": [
+        0.0,
+        9.6,
+        150.4,
+        224.0
+      ],
+      "foreground_patch_fraction": 0.193878,
+      "foreground_pixel_fraction": 0.193878
+    },
+    {
+      "row": 1,
+      "dataset_index": 1,
+      "label": 0,
+      "source_path": "/data/datasets/cub/CUB_200_2011/images/001.Black_footed_Albatross/Black_Footed_Albatross_0002_55.jpg",
+      "box_xyxy": [
+        0.0,
+        41.6,
+        214.4,
+        214.4
+      ],
+      "foreground_patch_fraction": 0.096939,
+      "foreground_pixel_fraction": 0.096939
+    }
+  ]
+}
