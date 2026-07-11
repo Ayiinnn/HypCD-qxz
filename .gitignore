@@ -34,3 +34,7 @@ checkpoints/
 
 # visualization outputs
 visualize/pic/
+
+#diagose
+
+diagnose/
