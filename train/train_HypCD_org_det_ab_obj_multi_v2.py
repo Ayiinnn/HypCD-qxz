@@ -30,7 +30,7 @@ from hyptorch.pmath import dist_matrix
 
 # object-level branch (shared backbone/projector/classifier; no new params)
 from models.foreground import ForegroundCropper
-from models.gt_bbox import GTBoxCropper
+from models.gt_bbox_v2 import GTBoxCropper
 from models.object_branch_multi import ObjectBranch
 
 
