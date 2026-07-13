@@ -27,11 +27,12 @@ from models import vision_transformer2 as vits2
 import geoopt.optim.radam as radam_
 import hyptorch.nn as hypnn
 from hyptorch.pmath import dist_matrix
+from hyptorch.radial_gate import RadialToPoincare, radial_order_loss
 
 # object-level branch (shared backbone/projector/classifier; no new params)
 from models.foreground import ForegroundCropper
 from models.gt_bbox_v2 import GTBoxCropper
-from models.object_branch_multi import ObjectBranch
+from models.object_branch_multi_v4 import ObjectBranch
 
 
 @contextlib.contextmanager
@@ -231,7 +232,7 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
     if args.use_object_branch:
         if args.use_gtbbox:
             # dataset GT boxes: crop from the ORIGINAL image, warp-resized with
-            # the same roi_align call as the online cropper (see models/gt_bbox.py).
+            # the same roi_align call as the online cropper (see models/gt_bbox_v2.py).
             gt_cropper = GTBoxCropper(
                 train_loader.dataset, args.dataset_name, out_size=args.image_size,
                 mode=args.gtbbox_mode, scale_min=args.gtbox_scale_min,
@@ -252,6 +253,23 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
 
     best_test_acc_lab = 0
     best_train_acc_all = 0
+
+    # ---- radial gate: level routing + description ----
+    # With the gate ON the projector needs to know which hierarchy level it is
+    # embedding; with the gate OFF (default) this helper is a byte-identical
+    # pass-through to the original single-argument call.
+    def _proj(feats, level):
+        if args.radial_gate:
+            return hyperbolic_projector(feats, level=level)
+        return hyperbolic_projector(feats)
+
+    if args.radial_gate:
+        args.logger.info('[radial-gate] {}'.format(hyperbolic_projector.describe()))
+        args.logger.info('[radial-gate] order loss: parent={} child={} margin={} weight={}'.format(
+            args.obj_entail_parent,
+            'object' if args.obj_entail_parent == 'image' else 'image',
+            args.rg_order_margin, args.rg_order_weight))
+
     for epoch in range(args.epochs):
         loss_record = AverageMeter()
 
@@ -268,7 +286,7 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
 
             with torch.cuda.amp.autocast(fp16_scaler is not None):
                 student_out = student(images)
-                student_proj = hyperbolic_projector(student_out)
+                student_proj = _proj(student_out, 'image')
                 student_out = hyperbolic_classifier(student_proj)
                 teacher_out = student_out.detach()
 
@@ -285,7 +303,7 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
                             obj_images = gt_cropper(uq_idxs, images, view_params)
                         else:
                             obj_images = fg_cropper(images)
-                        obj_feat = hyperbolic_projector(student(obj_images))
+                        obj_feat = _proj(student(obj_images), 'object')
                         obj_logits = hyperbolic_classifier(obj_feat)
                     obj_loss, obj_logs = object_branch(
                         img_feat=student_proj,
@@ -340,6 +358,18 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
                 if obj_loss is not None:
                     loss = loss + obj_loss
 
+                # ---- radial gate: first-order depth ordering (parent shallower) ----
+                # Deterministic in the two level scalars; guarantees inter-level
+                # separation emerges even if the distance/cls losses prefer
+                # pushing both levels deeper (bounded by [s_min, s_max] anyway).
+                order_loss = None
+                if args.radial_gate and args.use_object_branch and args.rg_order_weight > 0:
+                    parent_lv = args.obj_entail_parent            # 'image' or 'object'
+                    child_lv = 'object' if parent_lv == 'image' else 'image'
+                    order_loss = radial_order_loss(
+                        hyperbolic_projector, parent_lv, child_lv, margin=args.rg_order_margin)
+                    loss = loss + args.rg_order_weight * order_loss
+
                 pstr = ''
                 pstr += f'cls_loss: {cls_loss.item():.4f} '
                 pstr += f'cluster_loss: {cluster_loss.item():.4f} '
@@ -352,6 +382,14 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
                     pstr += f'obj_ent: {obj_logs["obj_entail"].item():.4f} '
                     pstr += f'obj_dist: {obj_logs["obj_dist"].item():.4f} '
                     pstr += f'obj_cls: {obj_logs["obj_cls"].item():.4f} '
+                    if 'obj_ent_sat' in obj_logs:
+                        pstr += f'ent_sat: {obj_logs["obj_ent_sat"].item():.3f} '
+                        pstr += (f'ext/aper: {obj_logs["obj_ext_deg"].item():.1f}/'
+                                 f'{obj_logs["obj_aper_deg"].item():.1f} ')
+                if args.radial_gate:
+                    pstr += hyperbolic_projector.stats_str() + ' '
+                    if order_loss is not None:
+                        pstr += f'rg_order: {order_loss.item():.4f} '
 
             # Train acc
             loss_record.update(loss.item(), class_labels.size(0))
@@ -371,6 +409,8 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
                 args.logger.info('Epoch: [{}][{}/{}]\t loss {:.5f}\t {}'.format(epoch, batch_idx, len(train_loader), loss.item(), pstr))
 
         args.logger.info('Train Epoch: {} Avg Loss: {:.4f} '.format(epoch, loss_record.avg))
+        if args.radial_gate:
+            args.logger.info('[radial-gate] epoch {}: {}'.format(epoch, hyperbolic_projector.depths_str()))
 
         # Step schedule
         exp_lr_scheduler.step()
@@ -516,6 +556,48 @@ if __name__ == "__main__":
                         help='aperture scale of the entailment cone (HyCoCLIP intra-modal default 1.2)')
     parser.add_argument('--obj_min_radius', type=float, default=0.1,
                         help='min-radius constant of the half-aperture')
+
+    # ----------------------
+    # RADIAL GATE (Stage-1: annular reparameterization, per-level learnable depths)
+    # ----------------------
+    # Replaces clip-as-projection (all post-LN norms >> cr => every sample hard-
+    # projected onto ONE shell, radial gradient exactly 0, entailment feasible
+    # set empty) by  z = expmap0(s_level * x/||x||),  s_level in [s_min, s_max]
+    # learnable (sigmoid-bounded), init s_level == cr => pointwise identical to
+    # the clipped baseline at step 0. Direction pathway stays parameter-free.
+    parser.add_argument('--radial_gate', action='store_true', default=False,
+                        help='enable the annular radial gate. OFF (default) = byte-identical '
+                             'original projector. Requires --cr > 0 (init depth).')
+    parser.add_argument('--rg_s_min_ratio', type=float, default=0.35,
+                        help='annulus floor as a ratio of cr; additionally floored at the '
+                             'entailment-cone validity bound (asin domain of the half-aperture).')
+    parser.add_argument('--rg_s_max_ratio', type=float, default=1.10,
+                        help='annulus ceiling as a ratio of cr (structural guardrail replacing '
+                             'the always-active clip).')
+    parser.add_argument('--rg_order_weight', type=float, default=0.05,
+                        help='weight of the radial ordering loss relu(s_parent - s_child + m); '
+                             '0 disables it (cone loss then provides the only radial signal).')
+    parser.add_argument('--rg_order_margin', type=float, default=0.20,
+                        help='margin m (tangent-norm units) of the radial ordering loss.')
+    # ---- v2: preserve the backbone's per-sample norm (depth) signal ----
+    # s_i = s_level * exp(kappa_level * T*tanh(log(r_i/r0_level)/T)); r0 = frozen
+    # median of the first batch (initial post-LN median). kappa=1 == the plain
+    # rescale v=(s/r0)x inside the band; kappa->0 == v1 per-level shell.
+    parser.add_argument('--rg_kappa_init', type=float, default=1.0,
+                        help='init of the per-level admission gain kappa of the DINO norm signal '
+                             '(1.0 = preserve as-is; 0 ~= v1 exact shell; learnable either way).')
+    parser.add_argument('--rg_kappa_max', type=float, default=2.0,
+                        help='upper bound of kappa (sigmoid-bounded in (0, kappa_max)).')
+    parser.add_argument('--rg_norm_band', type=float, default=1.3,
+                        help='multiplicative trust band of the norm ratio r/r0: log-ratio is '
+                             'tanh-saturated at +-log(band). Replaces "linear until always-hard '
+                             'clip" tails by smooth bounded ones (gradients stay alive).')
+    parser.add_argument('--rg_guard_ratio', type=float, default=1.5,
+                        help='hard guard radius R_guard = ratio * cr; sized to be inactive in '
+                             'normal operation (occasional-cap semantics of feature clipping).')
+    parser.add_argument('--rg_detach_norm', action='store_true', default=False,
+                        help='conservative ablation: stop the per-sample radial gradient from '
+                             'flowing into the backbone (signal still used forward).')
     # distance loss configuration
     parser.add_argument('--obj_dist_temp', type=float, default=0.1,
                         help='temperature of the hyperbolic-distance InfoNCE')
@@ -686,7 +768,17 @@ if __name__ == "__main__":
     # PROJECTION HEAD
     # ----------------------
     args.c = args.c
-    if args.cr != 0:
+    if args.radial_gate:
+        assert args.cr != 0, '--radial_gate requires --cr > 0 (baseline clip radius = init depth)'
+        hyperbolic_projector = RadialToPoincare(
+            c=args.c, cr=args.cr, levels=('image', 'object'),
+            s_min_ratio=args.rg_s_min_ratio, s_max_ratio=args.rg_s_max_ratio,
+            min_radius=args.obj_min_radius, riemannian=args.riemannian,
+            kappa_init=args.rg_kappa_init, kappa_max=args.rg_kappa_max,
+            norm_band=args.rg_norm_band, guard_ratio=args.rg_guard_ratio,
+            detach_norm=args.rg_detach_norm,
+        ).to(device)
+    elif args.cr != 0:
         hyperbolic_projector = hypnn.ToPoincare(c=args.c, ball_dim=args.mlp_out_dim, riemannian=args.riemannian, clip_r=args.cr).to(device)
     else:
         hyperbolic_projector = hypnn.ToPoincare(c=args.c, ball_dim=args.mlp_out_dim, riemannian=args.riemannian).to(device)

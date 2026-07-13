@@ -4,7 +4,6 @@ import sys
 import os
 import math
 import random
-import contextlib
 import numpy as np
 import torch
 import torch.nn as nn
@@ -27,39 +26,7 @@ from models import vision_transformer2 as vits2
 import geoopt.optim.radam as radam_
 import hyptorch.nn as hypnn
 from hyptorch.pmath import dist_matrix
-
-# object-level branch (shared backbone/projector/classifier; no new params)
-from models.foreground import ForegroundCropper
-from models.gt_bbox_v2 import GTBoxCropper
-from models.object_branch_multi import ObjectBranch
-
-
-@contextlib.contextmanager
-def preserve_rng_state(ref_tensor):
-    """Run a block without letting it advance the global RNG.
-
-    The object branch issues extra backbone forwards (foreground cropper +
-    object encoding). In training mode those forwards consume the DropPath /
-    stochastic-depth RNG of the finetuned blocks, which would shift the random
-    stream of the *image* branch on every subsequent batch and break bit-level
-    reproducibility with the original (single-branch) run.
-
-    Saving the CPU (and the relevant CUDA device) RNG state on entry and
-    restoring it on exit makes the image branch byte-for-byte independent of the
-    object branch: with the object weights at 0 (or ``--no_object_branch``) the
-    variant reproduces the original exactly, and changing object hyper-parameters
-    never moves the image trajectory. The object branch itself stays
-    deterministic (its RNG derives from the saved state each step).
-    """
-    cpu_state = torch.get_rng_state()
-    device = ref_tensor.device if ref_tensor.is_cuda else None
-    cuda_state = torch.cuda.get_rng_state(device) if device is not None else None
-    try:
-        yield
-    finally:
-        torch.set_rng_state(cpu_state)
-        if cuda_state is not None:
-            torch.cuda.set_rng_state(cuda_state, device)
+from hyptorch.radial_gate import RadialToPoincare
 
 
 def set_random_seed(seed: int, deterministic: bool = False, strict: bool = False) -> None:
@@ -224,34 +191,20 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
 
     cluster_criterion = DistillLoss(args.warmup_teacher_temp_epochs, args.epochs, args.n_views, args.warmup_teacher_temp, args.teacher_temp, hyp_c=0)
 
-    # ---- object-level branch (shared weights, no extra parameters) ----
-    fg_cropper = None
-    gt_cropper = None
-    object_branch = None
-    if args.use_object_branch:
-        if args.use_gtbbox:
-            # dataset GT boxes: crop from the ORIGINAL image, warp-resized with
-            # the same roi_align call as the online cropper (see models/gt_bbox.py).
-            gt_cropper = GTBoxCropper(
-                train_loader.dataset, args.dataset_name, out_size=args.image_size,
-                mode=args.gtbbox_mode, scale_min=args.gtbox_scale_min,
-                box_pad=args.gtbox_pad, bgswap_p=args.obj_bgswap_p, seed=args.seed,
-            )
-        else:
-            fg_cropper = ForegroundCropper(
-                student, model_name=args.model_name, source=args.obj_fg_source,
-                keep=args.obj_fg_keep, box_pad=args.obj_fg_pad, out_size=args.image_size,
-            )
-        object_branch = ObjectBranch(args)
-        args.logger.info(
-            '[object-branch] enabled | fg_source={} parent={} '
-            'w(ent/dist/cls)={}/{}/{}'.format(
-                'gt_bbox' if args.use_gtbbox else fg_cropper.source, args.obj_entail_parent,
-                args.obj_entail_weight, args.obj_dist_weight, args.obj_cls_weight))
-        args.logger.info('[object-branch] supervision: {}'.format(object_branch.supervision_desc()))
-
     best_test_acc_lab = 0
     best_train_acc_all = 0
+
+    # ---- radial gate: single 'image' level in this original pipeline ----
+    # All projector call sites below keep the plain one-argument form:
+    # RadialToPoincare routes them to its default level 'image'. With the gate
+    # OFF (default) the projector is the original ToPoincare and this whole
+    # code path is byte-identical to the unpatched script. No object branch
+    # here => no radial ordering loss and no cone; this run isolates the pure
+    # effect of the annular reparameterization (learnable depth + admitted
+    # per-sample norm signal) on accuracy.
+    if args.radial_gate:
+        args.logger.info('[radial-gate] {}'.format(hyperbolic_projector.describe()))
+
     for epoch in range(args.epochs):
         loss_record = AverageMeter()
 
@@ -260,9 +213,6 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
             images, class_labels, uq_idxs, mask_lab = batch
             mask_lab = mask_lab[:, 0]
 
-            view_params = None
-            if args.use_gtbbox and args.gtbbox_mode == 'view':
-                *images, view_params = images          # last element = (B, n_views, 5)
             class_labels, mask_lab = class_labels.cuda(non_blocking=True), mask_lab.cuda(non_blocking=True).bool()
             images = torch.cat(images, dim=0).cuda(non_blocking=True)
 
@@ -271,31 +221,6 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
                 student_proj = hyperbolic_projector(student_out)
                 student_out = hyperbolic_classifier(student_proj)
                 teacher_out = student_out.detach()
-
-                # ---- object-level branch (shared backbone/projector/classifier) ----
-                # Run BEFORE student_proj is re-chunked below; image features here
-                # are the full (2B, D) Poincare features that share the object space.
-                obj_loss = None
-                obj_logs = None
-                if args.use_object_branch:
-                    # Isolate the auxiliary backbone forwards from the global RNG
-                    # so the image branch is unaffected (see preserve_rng_state).
-                    with preserve_rng_state(images):
-                        if args.use_gtbbox:
-                            obj_images = gt_cropper(uq_idxs, images, view_params)
-                        else:
-                            obj_images = fg_cropper(images)
-                        obj_feat = hyperbolic_projector(student(obj_images))
-                        obj_logits = hyperbolic_classifier(obj_feat)
-                    obj_loss, obj_logs = object_branch(
-                        img_feat=student_proj,
-                        obj_feat=obj_feat,
-                        obj_logits=obj_logits,
-                        img_teacher_logits=teacher_out,
-                        class_labels=class_labels,
-                        mask_lab=mask_lab,
-                        teacher_temp=float(cluster_criterion.teacher_temp_schedule[epoch]),
-                    )
 
                 # clustering, sup
                 sup_logits = torch.cat([f[mask_lab] for f in (student_out / 0.1).chunk(2)], dim=0)
@@ -337,9 +262,6 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
                 loss_rep = (1 - lambda_distance) * loss_angle + lambda_distance * loss_distance
                 loss += loss_rep
 
-                if obj_loss is not None:
-                    loss = loss + obj_loss
-
                 pstr = ''
                 pstr += f'cls_loss: {cls_loss.item():.4f} '
                 pstr += f'cluster_loss: {cluster_loss.item():.4f} '
@@ -348,10 +270,8 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
                 pstr += f'angle sup_con_loss: {sup_con_loss_angle.item():.4f} '
                 pstr += f'angle contrastive_loss: {contrastive_loss_angle.item():.4f} '
 
-                if obj_logs is not None:
-                    pstr += f'obj_ent: {obj_logs["obj_entail"].item():.4f} '
-                    pstr += f'obj_dist: {obj_logs["obj_dist"].item():.4f} '
-                    pstr += f'obj_cls: {obj_logs["obj_cls"].item():.4f} '
+                if args.radial_gate:
+                    pstr += hyperbolic_projector.stats_str() + ' '
 
             # Train acc
             loss_record.update(loss.item(), class_labels.size(0))
@@ -371,6 +291,8 @@ def train(student, train_loader, test_loader, unlabelled_train_loader, args, hyp
                 args.logger.info('Epoch: [{}][{}/{}]\t loss {:.5f}\t {}'.format(epoch, batch_idx, len(train_loader), loss.item(), pstr))
 
         args.logger.info('Train Epoch: {} Avg Loss: {:.4f} '.format(epoch, loss_record.avg))
+        if args.radial_gate:
+            args.logger.info('[radial-gate] epoch {}: {}'.format(epoch, hyperbolic_projector.depths_str()))
 
         # Step schedule
         exp_lr_scheduler.step()
@@ -495,88 +417,54 @@ if __name__ == "__main__":
     parser.add_argument('--hyper_temp_scale', type=float, default=1.0)
 
     # ----------------------
-    # OBJECT-LEVEL BRANCH (hypersimgcd_org_det_ab_obj)
+    # RADIAL GATE (Stage-1: annular reparameterization, learnable 'image' depth)
     # ----------------------
-    parser.add_argument('--use_object_branch', action='store_true', default=True,
-                        help='enable the object-level (foreground) branch')
-    parser.add_argument('--no_object_branch', dest='use_object_branch', action='store_false',
-                        help='disable the object branch (recovers the original org_det_ab behaviour)')
-    # loss weights (one per loss)
-    parser.add_argument('--obj_entail_weight', type=float, default=0.1,
-                        help='weight of the feature-space entailment-cone loss')
-    parser.add_argument('--obj_dist_weight', type=float, default=0.1,
-                        help='weight of the feature-space hyperbolic-distance (InfoNCE) loss')
-    parser.add_argument('--obj_cls_weight', type=float, default=0.1,
-                        help='weight of the classification-space closeness loss')
-    # entailment cone configuration
-    parser.add_argument('--obj_entail_parent', type=str, default='image', choices=['image', 'object'],
-                        help="which view is the cone apex (parent). 'image'=scene entails object (paper); "
-                             "'object'=object entails image (HyCoCLIP box-as-parent).")
-    parser.add_argument('--obj_aperture_scale', type=float, default=1.2,
-                        help='aperture scale of the entailment cone (HyCoCLIP intra-modal default 1.2)')
-    parser.add_argument('--obj_min_radius', type=float, default=0.1,
-                        help='min-radius constant of the half-aperture')
-    # distance loss configuration
-    parser.add_argument('--obj_dist_temp', type=float, default=0.1,
-                        help='temperature of the hyperbolic-distance InfoNCE')
-    # ---- supervision structure of the three obj losses (_multi variant) ----
-    # The object branch does image<->object GROUNDING, which is instance-level, so the
-    # supervision is deliberately simple and tailored per loss. Two modes:
-    #   legacy (DEFAULT) -- bit-exact original (same-view diagonal for all three losses);
-    #                       reproduces the original object-branch results, and with the
-    #                       object weights at 0 reduces to the deterministic base HypCD.
-    #   multi            -- conservative grounding refinement: dist keeps ONE positive
-    #                       img_i<->obj_i and merely REMOVES false negatives (cross-view,
-    #                       labelled same-class, confident pseudo same-class) from the
-    #                       InfoNCE denominator (no attraction => no log(P) floor, no view
-    #                       collapse); ent stays diagonal img->obj; cls distils from the
-    #                       view-averaged image teacher. See models/object_branch_multi.py.
-    parser.add_argument('--obj_sup_mode', type=str, default='legacy', choices=['legacy', 'multi'],
-                        help="object-branch supervision. 'legacy' (default) = bit-exact original "
-                             "same-view-diagonal supervision (reproduces the pre-change results; "
-                             "000 weights => original HypCD). 'multi' = the conservative grounding "
-                             "refinement (dist false-negative elimination + view-averaged cls teacher).")
-    # kept as an alias for A/B: --obj_legacy_supervision forces legacy mode.
-    parser.add_argument('--obj_legacy_supervision', action='store_true', default=False,
-                        help='force legacy supervision (equivalent to --obj_sup_mode legacy).')
-    parser.add_argument('--obj_pl_thresh', type=float, default=0.7,
-                        help='(multi mode) min max-prob of the view-averaged image teacher (softmax at '
-                             'the student temperature 0.1) for a pseudo-label to count as a same-class '
-                             'neutral pair in the dist loss; acceptance ramps up as the classifier '
-                             'sharpens. Set to 1.0 to drop pseudo pairs entirely.')
-    # classification closeness (obj_cls)
-    parser.add_argument('--obj_cls_teacher', type=str, default='both', choices=['same', 'both'],
-                        help="(multi mode) image teacher used to distil each object view: 'same'=matching "
-                             "view (= legacy), 'both'=view-averaged teacher (default; lower variance, "
-                             "consistent with SimGCD's cross-view DistillLoss). Forced to 'same' in "
-                             "legacy mode.")
-    # foreground cropper configuration
-    parser.add_argument('--obj_fg_source', type=str, default='auto', choices=['auto', 'attention', 'cls_sim'],
-                        help="foreground saliency source. 'auto' -> attention for v1, cls_sim for v2.")
-    parser.add_argument('--obj_fg_keep', type=float, default=0.6,
-                        help='fraction of saliency mass kept as foreground (DINO default 0.6)')
-    parser.add_argument('--obj_fg_pad', type=float, default=0.1,
-                        help='relative padding added on each side of the foreground box')
-    parser.add_argument('--use_gtbbox', action='store_true', default=False,
-                        help='use dataset ground-truth bounding boxes for the object crops instead of '
-                             'the online saliency-based foreground cropper. The GT box is cropped from '
-                             'the ORIGINAL image and warp-resized to the backbone resolution with the '
-                             'same roi_align call as the online cropper (cub / scars / aircraft only).')
-    parser.add_argument('--gtbbox_mode', type=str, default='view', choices=['view', 'orig'],
-                        help="'view' (P0, default): augment-first-then-crop -- the GT box is mapped into "
-                             "each augmented view and a per-view stochastic RandomResizedCrop-style "
-                             "sub-box (aspect warp bounded to 4/3) is taken from the view tensor, "
-                             "online-cropper style but guaranteed on-object. "
-                             "'orig' reproduces the previous deterministic full-box behaviour.")
-    parser.add_argument('--gtbox_scale_min', type=float, default=0.5,
-                        help='[view] lower bound of the sub-box area fraction inside the padded GT box '
-                             '(1.0 ~= jittered full box)')
-    parser.add_argument('--gtbox_pad', type=float, default=0.15,
-                        help='[view] relative context padding around the mapped GT box')
-    parser.add_argument('--obj_bgswap_p', type=float, default=0.0,
-                        help='[view] P2b: probability of replacing an object crop by a background-swap '
-                             'composite (full GT-box content pasted onto another instance\'s view) -- a '
-                             'hard "same object, different context" positive. 0 disables; 0.3 suggested.')
+    # Baseline pathology: all post-LN norms (~20-30) >> cr => the clip hard-
+    # projects EVERY sample onto ONE shell (radial gradient exactly 0 for the
+    # backbone, per-sample norm signal destroyed). The gate replaces
+    # clip-as-projection by
+    #   s_i = s_image * exp(kappa_image * T*tanh(log(r_i / r0)/T))
+    #   z_i = expmap0( min(s_i, R_guard) * x_i/r_i )
+    # with s_image in [s_min, s_max] learnable (sigmoid-bounded, init == cr =>
+    # pointwise identical to the clipped baseline at step 0 when kappa=0, and
+    # within a few % of it in radius when kappa=1) and kappa_image the
+    # learnable admission gain of the DINO norm signal. Direction pathway
+    # stays parameter-free and untouched. This original (no object branch)
+    # script has a SINGLE hierarchy level, so there is no radial ordering loss
+    # and no entailment cone: the run isolates the pure effect of the
+    # reparameterization for the A/B against the object-branch scripts.
+    parser.add_argument('--radial_gate', action='store_true', default=False,
+                        help='enable the annular radial gate. OFF (default) = byte-identical '
+                             'original projector. Requires --cr > 0 (init depth).')
+    parser.add_argument('--rg_s_min_ratio', type=float, default=0.35,
+                        help='annulus floor as a ratio of cr; additionally floored at the '
+                             'entailment-cone validity bound (asin domain of the half-aperture).')
+    parser.add_argument('--rg_s_max_ratio', type=float, default=1.10,
+                        help='annulus ceiling as a ratio of cr (structural guardrail replacing '
+                             'the always-active clip).')
+    parser.add_argument('--rg_min_radius', type=float, default=0.1,
+                        help='cone parameter K used ONLY for the annulus validity floor (this '
+                             'script has no cone loss); keep equal to --obj_min_radius of the '
+                             'object-branch runs so both share the same annulus [s_min, s_max].')
+    # ---- v2: preserve the backbone's per-sample norm (depth) signal ----
+    # s_i = s_level * exp(kappa_level * T*tanh(log(r_i/r0_level)/T)); r0 = frozen
+    # median of the first batch (initial post-LN median). kappa=1 == the plain
+    # rescale v=(s/r0)x inside the band; kappa->0 == v1 per-level shell.
+    parser.add_argument('--rg_kappa_init', type=float, default=1.0,
+                        help='init of the per-level admission gain kappa of the DINO norm signal '
+                             '(1.0 = preserve as-is; 0 ~= v1 exact shell; learnable either way).')
+    parser.add_argument('--rg_kappa_max', type=float, default=2.0,
+                        help='upper bound of kappa (sigmoid-bounded in (0, kappa_max)).')
+    parser.add_argument('--rg_norm_band', type=float, default=1.3,
+                        help='multiplicative trust band of the norm ratio r/r0: log-ratio is '
+                             'tanh-saturated at +-log(band). Replaces "linear until always-hard '
+                             'clip" tails by smooth bounded ones (gradients stay alive).')
+    parser.add_argument('--rg_guard_ratio', type=float, default=1.5,
+                        help='hard guard radius R_guard = ratio * cr; sized to be inactive in '
+                             'normal operation (occasional-cap semantics of feature clipping).')
+    parser.add_argument('--rg_detach_norm', action='store_true', default=False,
+                        help='conservative ablation: stop the per-sample radial gradient from '
+                             'flowing into the backbone (signal still used forward).')
 
     # ----------------------
     # INIT
@@ -590,7 +478,7 @@ if __name__ == "__main__":
     args.num_labeled_classes = len(args.train_classes)
     args.num_unlabeled_classes = len(args.unlabeled_classes)
 
-    init_experiment(args, runner_name=[f'HypSimGCD_obj_{args.dataset_name}'])
+    init_experiment(args, runner_name=[f'HypSimGCD_{args.dataset_name}'])
     args.logger.info(f'Using evaluation function {args.eval_funcs} to print results')
     # Add a handler for stdout and configure it to log to stdout as well
     args.logger.add(sys.stdout)
@@ -642,13 +530,7 @@ if __name__ == "__main__":
     # CONTRASTIVE TRANSFORM
     # --------------------
     train_transform, test_transform = get_transform(args.transform, image_size=args.image_size, args=args)
-    if args.use_gtbbox and args.gtbbox_mode == 'view':
-        # records (sx, sy, top, left, flip) per view for GT-box mapping; consumes
-        # the global RNG identically, so image views stay bit-identical.
-        from models.gt_bbox_v2 import RecordingViewGenerator
-        train_transform = RecordingViewGenerator(base_transform=train_transform, n_views=args.n_views)
-    else:
-        train_transform = ContrastiveLearningViewGenerator(base_transform=train_transform, n_views=args.n_views)
+    train_transform = ContrastiveLearningViewGenerator(base_transform=train_transform, n_views=args.n_views)
     # --------------------
     # DATASETS
     # --------------------
@@ -686,7 +568,17 @@ if __name__ == "__main__":
     # PROJECTION HEAD
     # ----------------------
     args.c = args.c
-    if args.cr != 0:
+    if args.radial_gate:
+        assert args.cr != 0, '--radial_gate requires --cr > 0 (baseline clip radius = init depth)'
+        hyperbolic_projector = RadialToPoincare(
+            c=args.c, cr=args.cr, levels=('image',),
+            s_min_ratio=args.rg_s_min_ratio, s_max_ratio=args.rg_s_max_ratio,
+            min_radius=args.rg_min_radius, riemannian=args.riemannian,
+            kappa_init=args.rg_kappa_init, kappa_max=args.rg_kappa_max,
+            norm_band=args.rg_norm_band, guard_ratio=args.rg_guard_ratio,
+            detach_norm=args.rg_detach_norm,
+        ).to(device)
+    elif args.cr != 0:
         hyperbolic_projector = hypnn.ToPoincare(c=args.c, ball_dim=args.mlp_out_dim, riemannian=args.riemannian, clip_r=args.cr).to(device)
     else:
         hyperbolic_projector = hypnn.ToPoincare(c=args.c, ball_dim=args.mlp_out_dim, riemannian=args.riemannian).to(device)
