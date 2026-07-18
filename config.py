@@ -10,6 +10,15 @@ imagenet_root = '/data/datasets/imagenet'
 herbarium_dataroot = '/data/datasets/herbarium_19'
 pets_root = '/data/datasets/oxford_pets'
 
+# -----------------
+# PARTCO LABELS ROOTS ([hypartco] additive; used only by data/partco/*)
+# Directory layout mirrors the partco repo config, e.g. <root>/<img>_label.png
+# -----------------
+cub_partco_root = '/data/datasets/partco_labels/cub/cub'
+car_partco_root = '/data/datasets/partco_labels/cars/cars'
+aircraft_partco_root = '/data/datasets/partco_labels/aircraft/aircraft'
+pets_partco_root = '/data/datasets/partco_labels/pets/'
+
 # OSR Split dir
 osr_split_dir = 'data/ssb_splits'
 

@@ -71,7 +71,11 @@ def half_aperture(
     curv = resolve_c(curv, x)
     rc = (curv ** 0.5) if not torch.is_tensor(curv) else curv.clamp_min(eps) ** 0.5
     asin_input = 2 * min_radius / (torch.norm(x, dim=-1) * rc + eps)
-    return torch.asin(torch.clamp(asin_input, min=-1 + eps, max=1 - eps))
+    # NaN 保护: fp32 下 1-1e-8 会舍入成 1.0, 而 asin/acos 在 ±1 处导数为 inf;
+    # 上游梯度为 0 时 0*inf=NaN(loss 权重为 0 也会经反传中毒)。
+    # bound 取当前 dtype 下严格 <1 的值, 导数上界 ~1/sqrt(8*eps_dtype) (fp32 约 1024)。
+    bound = 1.0 - 4.0 * torch.finfo(asin_input.dtype).eps
+    return torch.asin(torch.clamp(asin_input, min=-bound, max=bound))
 
 
 def oxy_angle(x: Tensor, y: Tensor, curv, eps: float = 1e-8) -> Tensor:
@@ -85,7 +89,10 @@ def oxy_angle(x: Tensor, y: Tensor, curv, eps: float = 1e-8) -> Tensor:
     acos_numer = y_time + c_xyl * x_time
     acos_denom = torch.sqrt(torch.clamp(c_xyl ** 2 - 1, min=eps))
     acos_input = acos_numer / (torch.norm(x, dim=-1) * acos_denom + eps)
-    return torch.acos(torch.clamp(acos_input, min=-1 + eps, max=1 - eps))
+    # NaN 保护: 共线 parent/child 会让 acos_input 恰好算到 ±1.0f, 而 1-1e-8 在
+    # fp32 下就是 1.0(钳不住); acos'(±1)=∓inf, 0 上游 × inf = NaN。
+    bound = 1.0 - 4.0 * torch.finfo(acos_input.dtype).eps
+    return torch.acos(torch.clamp(acos_input, min=-bound, max=bound))
 
 
 # --------------------------------------------------------------------------- #
@@ -145,7 +152,9 @@ def oxy_angle_pairwise(x: Tensor, y: Tensor, curv, eps: float = 1e-8) -> Tensor:
     acos_denom = torch.sqrt(torch.clamp(c_xyl ** 2 - 1, min=eps))      # (N, M)
     x_norm = torch.norm(x, dim=-1)                                     # (N,)
     acos_input = acos_numer / (x_norm[:, None] * acos_denom + eps)
-    return torch.acos(torch.clamp(acos_input, min=-1 + eps, max=1 - eps))
+    # NaN 保护: 同 oxy_angle, 边界须在当前 dtype 下严格落在 (-1, 1) 内。
+    bound = 1.0 - 4.0 * torch.finfo(acos_input.dtype).eps
+    return torch.acos(torch.clamp(acos_input, min=-bound, max=bound))
 
 
 @torch.no_grad()
