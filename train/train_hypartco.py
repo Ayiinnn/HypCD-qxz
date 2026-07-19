@@ -253,8 +253,10 @@ def train(student, patch_projector, train_loader, test_loader, unlabelled_train_
     part_sup_dist = HypPatchSupConLoss(temperature=0.07, hyp_c=args.c, to_hyp=hyperbolic_part_projector)
     part_unsup_angle = HypPatchUnConLoss(temperature=0.07 * args.hyper_temp_scale, hyp_c=0,
                                          dynamic_threshold=True)
-    part_unsup_dist = HypPatchUnConLoss(temperature=0.07, hyp_c=args.c, to_hyp=hyperbolic_part_projector,
-                                        dynamic_threshold=True)
+    # [hypartco-r3] The unsup part loss is no longer dualized (see the loss
+    # assembly below); this distance instance is therefore not constructed.
+    # part_unsup_dist = HypPatchUnConLoss(temperature=0.07, hyp_c=args.c, to_hyp=hyperbolic_part_projector,
+    #                                     dynamic_threshold=True)
 
     best_test_acc_lab = 0
     best_train_acc_all = 0
@@ -322,7 +324,7 @@ def train(student, patch_projector, train_loader, test_loader, unlabelled_train_
                     patch_sup_con_loss_dist = part_sup_dist(patch_out[mask_lab], patch_label_grid[mask_lab], sup_con_labels)
                     class_logits = (student_out / 0.1).chunk(2)[0]
                     patch_unsup_con_loss_angle = part_unsup_angle(patch_out, patch_label_grid, class_logits, mask_lab, epoch=epoch)
-                    patch_unsup_con_loss_dist = part_unsup_dist(patch_out, patch_label_grid, class_logits, mask_lab, epoch=epoch)
+                    # [hypartco-r3] no distance-unsup forward (see assembly below)
 
                 loss = 0
                 loss += (1 - args.sup_weight) * cluster_loss + args.sup_weight * cls_loss
@@ -344,8 +346,25 @@ def train(student, patch_projector, train_loader, test_loader, unlabelled_train_
                     part_loss_angle = args.sup_weight * patch_sup_con_loss_angle
                     part_loss_dist = args.sup_weight * patch_sup_con_loss_dist
                 else:
+                    # [hypartco-r3] The UNSUP part loss is NOT dualized: it enters both
+                    # blend arms in its PartCo form (angle @ 0.07*hts), so its total
+                    # weight is PartCo's constant 0.5*(1-sup_weight) and lambda_distance
+                    # only dualizes the SUP part loss:
+                    #   loss_part = 0.5(1-sw)*unsup_a + 0.5*sw*[(1-ld)*sup_a + ld*sup_d]
+                    # Rationale (r2 logs): with the r2 hard-negative fix verified in the
+                    # values (angle unsup settles in PartCo's 8.5-9.6 band, distance
+                    # unsup at the bounded -4..-5.4 hn+CE level, no runaway), the ep30
+                    # cliff persisted and its depth tracked lambda_distance almost
+                    # linearly (-36.4pt at ld=0.155 vs -18.8pt at ld=0.078, while the
+                    # angle-unsup coefficient *rose* 9%) -- convicting the
+                    # distance-unsup composite (pseudo-label SupCon + consistency under
+                    # -D_H).  That is also the one cell with no precedent in either
+                    # paper: HypCD derives its substitution for true-label SupCon and
+                    # augmentation-pair InfoNCE; PartCo's pseudo-label part loss exists
+                    # only in cosine.  Sup part (true labels, the HypCD-covered form,
+                    # log-verified healthy for 30 epochs in both geometries) stays dual.
                     part_loss_angle = 0.5 * ((1 - args.sup_weight) * patch_unsup_con_loss_angle + args.sup_weight * patch_sup_con_loss_angle)
-                    part_loss_dist = 0.5 * ((1 - args.sup_weight) * patch_unsup_con_loss_dist + args.sup_weight * patch_sup_con_loss_dist)
+                    part_loss_dist = 0.5 * ((1 - args.sup_weight) * patch_unsup_con_loss_angle + args.sup_weight * patch_sup_con_loss_dist)
                 loss_part = (1 - lambda_distance) * part_loss_angle + lambda_distance * part_loss_dist
                 loss += loss_part
 
@@ -360,7 +379,7 @@ def train(student, patch_projector, train_loader, test_loader, unlabelled_train_
                 pstr += f'distance patch_sup_con_loss: {patch_sup_con_loss_dist.item():.4f} '
                 if epoch >= args.warmup_teacher_temp_epochs:
                     pstr += f'angle patch_unsup_con_loss: {patch_unsup_con_loss_angle.item():.4f} '
-                    pstr += f'distance patch_unsup_con_loss: {patch_unsup_con_loss_dist.item():.4f} '
+                    # [hypartco-r3] no distance patch_unsup line (loss not computed)
 
             # Train acc
             loss_record.update(loss.item(), class_labels.size(0))

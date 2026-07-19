@@ -32,6 +32,14 @@ Future extension point (kept orthogonal, not implemented here): the ball
 places generic concepts near the origin and specific ones near the boundary
 (HyCoCLIP / entailment cones); a radial gate on the part vs. image radii
 would slot in at the ``to_hyp`` operators without touching these losses.
+
+Revision r2 (single change, see the [hypartco-r2] block in HypPatchUnConLoss):
+the hard-negative auxiliary -- a repo-level term NOT part of PartCo's paper
+loss (Eq. 6-7 are pure log-softmax) -- is now computed on cosine at
+base_temperature in both branches.  The HypCD cos -> -D_H substitution and the
+hts temperature scaling apply, as in HypCD itself, to the log-softmax terms
+only.  Everything else (log-softmax parts, consistency, gating, weighting,
+the pre-existing PartCo numerics) is byte-identical to r1.
 """
 import math
 
@@ -420,6 +428,10 @@ class HypPatchUnConLoss(nn.Module):
                 continue  # No category appears more than once for this part
 
             # [hypartco] angle vs. hyperbolic-distance similarity (HypCD Eq. 8-10)
+            # [hypartco-r2] keep the raw pooled features for the hard-negative
+            # auxiliary below (cosine is norm-invariant, so this reference is
+            # all it needs regardless of what `features` becomes).
+            features_eu = features
             if self.hyp_c == 0:
                 # Normalize features
                 features = F.normalize(features, dim=1)
@@ -452,8 +464,34 @@ class HypPatchUnConLoss(nn.Module):
 
             # Hard negative mining - find samples with high similarity but different labels
             if self.hard_negative_weight > 0:
+                # [hypartco-r2] The hard-negative auxiliary is computed on COSINE at
+                # base_temperature in BOTH branches (r1 reused the branch similarity
+                # at self.temperature).  Two log-verified failure modes motivated this:
+                #   * scale anchor: PartCo's code pins the log-softmax term to
+                #     1/base_temperature (the explicit `* temperature/base_temperature`
+                #     rescale below), while this auxiliary hard-codes 1/temperature.
+                #     They coincide only at T = bT (original PartCo).  Under HypCD's
+                #     angle temperature 0.07*hts the auxiliary is silently amplified
+                #     by bT/T (2.5x at hts=0.4; the r1 log shows its depth growing
+                #     from PartCo's -4..-6 to ~-13).
+                #   * boundedness: with S = -D_H/T the term loses the [-2/T, 0] range
+                #     and the grad->0 saturation at cos=-1 that its top-k "penalize
+                #     only near-duplicates" design relies on; it becomes an unbounded
+                #     constant-rate repulsion (r1 log: -3.5 -> -15.3 and still
+                #     sinking, while the pure log-softmax sup loss on the same
+                #     geometry stayed at +0.08..0.2 for 30 epochs).
+                # Cosine of the pooled features IS the angle similarity of the
+                # exp-mapped points (conformal invariance, HypCD Eq. 10), so the
+                # auxiliary stays inside the ball's geometry -- HypCD's own angle
+                # leg -- while -D_H remains exactly where HypCD's substitution is
+                # derived: the log-softmax term.  At hyp_c=0 and T=bT this block is
+                # bit-identical to the original PartCo computation.
+                feats_n = F.normalize(features_eu, dim=1)
+                hn_sim_matrix = torch.mm(feats_n, feats_n.transpose(0, 1)) / self.base_temperature
+                hn_max, _ = torch.max(hn_sim_matrix, dim=1, keepdim=True)
+                hn_sim_matrix = hn_sim_matrix - hn_max.detach()
                 # Hard negatives: high similarity but different class
-                hard_negatives = sim_matrix * neg_mask
+                hard_negatives = hn_sim_matrix * neg_mask
                 # Get top-k hard negatives per sample
                 k = max(1, int(0.2 * (len(features) - 1)))  # Use top 20% as hard negatives
                 hard_neg_sim, _ = torch.topk(hard_negatives, k=k, dim=1)
