@@ -50,8 +50,8 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 # [hypartco] B's data layer: PartCo transforms (aligned view-0) + part-label datasets
-from data.partco.augmentations import get_transform, PartCoThreeView
-from data.partco.get_datasets import get_datasets, get_class_splits
+from data.partco.r5.augmentations import get_transform, PartCoThreeView
+from data.partco.r5.get_datasets import get_datasets, get_class_splits
 
 from util.general_utils import AverageMeter, init_experiment
 from util.cluster_and_log_utils import log_accs_from_preds
