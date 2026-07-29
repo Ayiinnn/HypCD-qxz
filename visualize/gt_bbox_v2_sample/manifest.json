@@ -1,0 +1,38 @@
+{
+  "dataset": "cub",
+  "split": "train",
+  "dataset_index": 5921,
+  "uq_idx": 5921,
+  "label_zero_based": 197,
+  "source_path": "/data/datasets/cub/CUB_200_2011/images/198.Rock_Wren/Rock_Wren_0122_189042.jpg",
+  "class_folder": "198.Rock_Wren",
+  "original_size_wh": [
+    490,
+    500
+  ],
+  "gt_box_xyxy": [
+    108.0,
+    70.0,
+    403.0,
+    352.0
+  ],
+  "mode": "view",
+  "n_views": 2,
+  "image_size": 224,
+  "scale_min": 0.7,
+  "box_pad": 0.15,
+  "bgswap_p": 0.0,
+  "seed": 20,
+  "donor_dataset_index": null,
+  "outputs": {
+    "original": "original.png",
+    "augmented_views": [
+      "augmented_view_00.png",
+      "augmented_view_01.png"
+    ],
+    "crops": [
+      "crop_view_00.png",
+      "crop_view_01.png"
+    ]
+  }
+}
