@@ -1,0 +1,18 @@
+{
+  "dataset": "aircraft",
+  "cosine_similarity": 0.9852346181869507,
+  "class_gap_constraint": 1,
+  "image_1": {
+    "path": "/data/datasets/fgvc-aircraft-2013b/data/images/1250523.jpg",
+    "label": 30,
+    "class_name": "A340-300",
+    "exported_file": "image_1_class_030_A340-300.jpg"
+  },
+  "image_2": {
+    "path": "/data/datasets/fgvc-aircraft-2013b/data/images/1236361.jpg",
+    "label": 31,
+    "class_name": "A340-500",
+    "exported_file": "image_2_class_031_A340-500.jpg"
+  },
+  "preview_file": "pair.jpg"
+}

@@ -1,0 +1,18 @@
+{
+  "dataset": "cub",
+  "cosine_similarity": 0.9592939615249634,
+  "class_gap_constraint": 1,
+  "image_1": {
+    "path": "/data/datasets/cub/CUB_200_2011/images/124.Le_Conte_Sparrow/Le_Conte_Sparrow_0022_117039.jpg",
+    "label": 123,
+    "class_name": "Le Conte Sparrow",
+    "exported_file": "image_1_class_123_Le_Conte_Sparrow.jpg"
+  },
+  "image_2": {
+    "path": "/data/datasets/cub/CUB_200_2011/images/125.Lincoln_Sparrow/Lincoln_Sparrow_0074_117584.jpg",
+    "label": 124,
+    "class_name": "Lincoln Sparrow",
+    "exported_file": "image_2_class_124_Lincoln_Sparrow.jpg"
+  },
+  "preview_file": "pair.jpg"
+}

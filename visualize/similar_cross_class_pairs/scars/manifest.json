@@ -1,0 +1,18 @@
+{
+  "dataset": "scars",
+  "cosine_similarity": 0.9530656337738037,
+  "class_gap_constraint": 1,
+  "image_1": {
+    "path": "/data/datasets/cars/cars_train/04650.jpg",
+    "label": 21,
+    "class_name": "Audi S5 Coupe 2012",
+    "exported_file": "image_1_class_021_Audi_S5_Coupe_2012.jpg"
+  },
+  "image_2": {
+    "path": "/data/datasets/cars/cars_train/03824.jpg",
+    "label": 22,
+    "class_name": "Audi S4 Sedan 2012",
+    "exported_file": "image_2_class_022_Audi_S4_Sedan_2012.jpg"
+  },
+  "preview_file": "pair.jpg"
+}

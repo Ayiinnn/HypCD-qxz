@@ -1,0 +1,23 @@
+[
+  {
+    "dataset": "cub",
+    "cosine_similarity": 0.9592939615249634,
+    "class_1": "123: Le Conte Sparrow",
+    "class_2": "124: Lincoln Sparrow",
+    "manifest": "/data/projects/HypCD/visualize/similar_cross_class_pairs/cub/manifest.json"
+  },
+  {
+    "dataset": "scars",
+    "cosine_similarity": 0.9530656337738037,
+    "class_1": "21: Audi S5 Coupe 2012",
+    "class_2": "22: Audi S4 Sedan 2012",
+    "manifest": "/data/projects/HypCD/visualize/similar_cross_class_pairs/scars/manifest.json"
+  },
+  {
+    "dataset": "aircraft",
+    "cosine_similarity": 0.9852346181869507,
+    "class_1": "30: A340-300",
+    "class_2": "31: A340-500",
+    "manifest": "/data/projects/HypCD/visualize/similar_cross_class_pairs/aircraft/manifest.json"
+  }
+]
